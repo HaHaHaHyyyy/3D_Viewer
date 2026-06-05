@@ -36,19 +36,21 @@ void draw_cube() {
 }
 
 void draw_grid() {
+    glDisable(GL_LIGHTING);
     glColor3f(0.5f, 0.5f, 0.5f);   // серый цвет
     glBegin(GL_LINES);
-    // Линии вдоль X
-    for (int i = -10; i <= 10; i++) {
-        glVertex3f((float)i, -0.5f, -10.0f);
-        glVertex3f((float)i, -0.5f,  10.0f);
-    }
-    // Линии вдоль Z
-    for (int i = -10; i <= 10; i++) {
-        glVertex3f(-10.0f, -0.5f, (float)i);
-        glVertex3f( 10.0f, -0.5f, (float)i);
+
+    int limit = 100;   // большой диапазон – создаёт иллюзию бесконечности
+    for (int i = -limit; i <= limit; i++) {
+        // Линии вдоль X (постоянная Z)
+        glVertex3f((float)i, 0.0f, (float)-limit);
+        glVertex3f((float)i, 0.0f, (float) limit);
+        // Линии вдоль Z (постоянная X)
+        glVertex3f((float)-limit, 0.0f, (float)i);
+        glVertex3f((float) limit, 0.0f, (float)i);
     }
     glEnd();
+    glEnable(GL_LIGHTING);
 }
 
 void display() {
