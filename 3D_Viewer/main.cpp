@@ -3,7 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#endif
+
 #include "mesh.h"
 #include "camera.h"
 #include "lights.h"
@@ -11,6 +16,11 @@
 #include "screenshot.h"
 #include "utils.h"
 #include "Lists.h"
+
+// ImGui
+#include "imgui.h"
+#include "imgui_impl_glut.h"
+#include "imgui_impl_opengl3.h"
 
 // ---------- Глобальные переменные ----------
 Pt g_head = NULL;
@@ -20,12 +30,12 @@ Pt g_selected = NULL;
 Camera camera;
 int win_width = 1024, win_height = 768;
 int last_time = 0;
-int show_grid = 1, show_arrows = 0;
+bool show_grid = true, show_arrows = false;   // изменено на bool
+bool move_grid_mode = false;                  // изменено на bool
+bool clip_enabled = false;                    // изменено на bool
 int mouse_down = 0, last_mx = 0, last_my = 0;
 
 float grid_y = 0.0f;
-int move_grid_mode = 0;
-int clip_enabled = 0;
 double clip_plane[4] = {0, 1, 0, 0};
 
 // ---------- Вспомогательные функции ----------
@@ -57,7 +67,6 @@ void delete_selected() {
 
     Pt to_delete = g_selected;
 
-    // Выбираем следующий или предыдущий объект
     if (to_delete->PNext != NULL) {
         g_selected = to_delete->PNext;
     } else {
@@ -65,7 +74,6 @@ void delete_selected() {
         if (g_selected == to_delete) g_selected = NULL;
     }
 
-    // Удаляем узел из списка
     if (to_delete == g_head) {
         g_head = to_delete->PNext;
         if (g_head == NULL) g_tail = NULL;
@@ -78,7 +86,6 @@ void delete_selected() {
         }
     }
 
-    // Освобождаем ресурсы
     free(to_delete->ObjData.name);
     mesh_free(&to_delete->ObjData);
     free(to_delete);
@@ -131,7 +138,6 @@ void load_scene(const char* filename) {
     FILE* f = fopen(fullpath, "r");
     if (!f) { perror("load_scene"); return; }
 
-    // Очистка сцены
     Pt cur = g_head;
     while (cur) {
         Pt next = cur->PNext;
@@ -149,7 +155,6 @@ void load_scene(const char* filename) {
         if (strncmp(line, "obj ", 4) == 0) {
             if (reading) {
                 AddElemToList(&g_head, &g_tail, &m);
-                // Не освобождаем m, т.к. указатели скопированы
             }
             char fname[256];
             sscanf(line, "obj %255s", fname);
@@ -215,6 +220,17 @@ void draw_arrows() {
     glEnable(GL_LIGHTING);
 }
 
+// Объявляем коллбэки как extern "C" для совместимости с GLUT
+extern "C" {
+    void display();
+    void reshape(int w, int h);
+    void keyboard(unsigned char key, int x, int y);
+    void special_keys(int key, int x, int y);
+    void mouse(int button, int state, int x, int y);
+    void motion(int x, int y);
+    void timer(int value);
+}
+
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -270,48 +286,138 @@ void display() {
         glEnable(GL_LIGHTING);
     }
 
+    // ---------- ImGui ----------
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGLUT_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::Begin("3D Viewer Controls", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Text("Objects in scene:");
+    if (ImGui::BeginListBox("##list", ImVec2(200, 120))) {
+        Pt cur2 = g_head;
+        while (cur2) {
+            bool is_selected = (cur2 == g_selected);
+            if (ImGui::Selectable(cur2->ObjData.name, is_selected)) {
+                g_selected = cur2;
+            }
+            cur2 = cur2->PNext;
+        }
+        ImGui::EndListBox();
+    }
+
+    if (ImGui::Button("Delete selected")) delete_selected();
+    ImGui::SameLine();
+    if (ImGui::Button("Duplicate selected")) duplicate_selected();
+    if (ImGui::Button("Add OBJ...")) {
+        char fname[256];
+        printf("Enter OBJ filename (in Objects/): ");
+        if (scanf("%255s", fname) == 1) {
+            char fullpath[512];
+            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+            add_mesh_from_file(fullpath);
+        }
+        while (getchar() != '\n');
+    }
+    if (ImGui::Button("Save scene")) {
+        char name[256];
+        printf("Scene name: ");
+        if (scanf("%255s", name) == 1) {
+            char fname[512];
+            snprintf(fname, sizeof(fname), "%s.txt", name);
+            save_scene(fname);
+        }
+        while (getchar() != '\n');
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load scene")) {
+        char name[256];
+        printf("Scene name to load: ");
+        if (scanf("%255s", name) == 1) {
+            char fname[512];
+            snprintf(fname, sizeof(fname), "%s.txt", name);
+            load_scene(fname);
+        }
+        while (getchar() != '\n');
+    }
+    ImGui::Separator();
+
+    if (g_selected) {
+        ImGui::Text("Selected: %s", g_selected->ObjData.name);
+        ImGui::DragFloat3("Position", &g_selected->ObjData.position.x, 0.1f);
+        ImGui::DragFloat3("Rotation", &g_selected->ObjData.rotation.x, 1.0f);
+        ImGui::DragFloat3("Scale", &g_selected->ObjData.scale.x, 0.05f);
+        ImGui::ColorEdit3("Color", &g_selected->ObjData.color.x);
+        if (ImGui::Button("Load texture")) {
+            if (g_selected->ObjData.texture_id)
+                glDeleteTextures(1, &g_selected->ObjData.texture_id);
+            g_selected->ObjData.texture_id = load_texture("Objects/texture.jpg");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Remove texture")) {
+            if (g_selected->ObjData.texture_id) {
+                glDeleteTextures(1, &g_selected->ObjData.texture_id);
+                g_selected->ObjData.texture_id = 0;
+            }
+        }
+    } else {
+        ImGui::Text("No object selected.");
+    }
+    ImGui::Separator();
+    ImGui::Checkbox("Show grid", &show_grid);
+    ImGui::Checkbox("Show arrows", &show_arrows);
+    ImGui::DragFloat("Grid Y", &grid_y, 0.05f);
+    ImGui::Checkbox("Clipping plane", &clip_enabled);
+    ImGui::DragFloat("Clip offset", (float*)&clip_plane[3], 0.05f);
+    ImGui::Text("Camera pos: %.2f %.2f %.2f", camera.pos.x, camera.pos.y, camera.pos.z);
+    ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+    ImGui::End();
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
     glutSwapBuffers();
 }
 
 void reshape(int w, int h) {
     win_width = w; win_height = h;
     glViewport(0, 0, w, h);
+    ImGui_ImplGLUT_ReshapeFunc(w, h);
 }
 
 void keyboard(unsigned char key, int x, int y) {
-    // Обработка Ctrl+комбинаций (коды 1..26), исключая Tab (9)
+    ImGui_ImplGLUT_KeyboardFunc(key, x, y);
+    if (ImGui::GetIO().WantCaptureKeyboard) return;
+
     if (key >= 1 && key <= 26 && key != 9) {
         switch (key) {
-            case 19: // Ctrl+S – сохранить сцену
-                {
-                    char name[256];
-                    printf("Enter scene name (without .txt): ");
-                    if (scanf("%255s", name) == 1) {
-                        char filename[512];
-                        snprintf(filename, sizeof(filename), "%s.txt", name);
-                        save_scene(filename);
-                    } else {
-                        printf("Invalid name.\n");
-                        while (getchar() != '\n');
-                    }
+            case 19: {
+                char name[256];
+                printf("Enter scene name (without .txt): ");
+                if (scanf("%255s", name) == 1) {
+                    char filename[512];
+                    snprintf(filename, sizeof(filename), "%s.txt", name);
+                    save_scene(filename);
+                } else {
+                    printf("Invalid name.\n");
+                    while (getchar() != '\n');
                 }
                 glutPostRedisplay();
                 return;
-            case 15: // Ctrl+O – загрузить сцену
-                {
-                    char name[256];
-                    printf("Enter scene name to load (without .txt): ");
-                    if (scanf("%255s", name) == 1) {
-                        char filename[512];
-                        snprintf(filename, sizeof(filename), "%s.txt", name);
-                        load_scene(filename);
-                    } else {
-                        printf("Invalid name.\n");
-                        while (getchar() != '\n');
-                    }
+            }
+            case 15: {
+                char name[256];
+                printf("Enter scene name to load (without .txt): ");
+                if (scanf("%255s", name) == 1) {
+                    char filename[512];
+                    snprintf(filename, sizeof(filename), "%s.txt", name);
+                    load_scene(filename);
+                } else {
+                    printf("Invalid name.\n");
+                    while (getchar() != '\n');
                 }
                 glutPostRedisplay();
                 return;
+            }
             default:
                 return;
         }
@@ -355,14 +461,14 @@ void keyboard(unsigned char key, int x, int y) {
             }
             break;
         case 'o': {
-                char fname[256];
-                printf("Enter OBJ filename (in Objects/): ");
-                scanf("%255s", fname);
-                char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
-                add_mesh_from_file(fullpath);
-            }
+            char fname[256];
+            printf("Enter OBJ filename (in Objects/): ");
+            scanf("%255s", fname);
+            char fullpath[512];
+            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+            add_mesh_from_file(fullpath);
             break;
+        }
         case 'x': if (g_selected) g_selected->ObjData.rotation.x += 5.0f; break;
         case 'X': if (g_selected) g_selected->ObjData.rotation.x -= 5.0f; break;
         case 'z': if (g_selected) g_selected->ObjData.rotation.z += 5.0f; break;
@@ -372,22 +478,14 @@ void keyboard(unsigned char key, int x, int y) {
             g_selected->ObjData.rotation.y = 0;
             g_selected->ObjData.rotation.z = 0;
         } break;
-
-        // --- НЕРАВНОМЕРНОЕ МАСШТАБИРОВАНИЕ (ОСИ X, Y, Z) ---
         case 'k': if (g_selected) g_selected->ObjData.scale.x -= 0.1f; break;
         case 'K': if (g_selected) g_selected->ObjData.scale.x += 0.1f; break;
         case 'l': if (g_selected) g_selected->ObjData.scale.y -= 0.1f; break;
         case 'L': if (g_selected) g_selected->ObjData.scale.y += 0.1f; break;
-        case ';':  // обычная ; – увеличивает Z
-            if (g_selected) g_selected->ObjData.scale.z += 0.1f;
-            break;
-        case ':':  // Shift+; (двоеточие) – уменьшает Z (можно обработать и через модификатор, но для надёжности оставим и : )
-            if (g_selected) g_selected->ObjData.scale.z -= 0.1f;
-            break;
-        // Альтернативный способ: если двоеточие не приходит, то можно обработать ';' с модификатором, но оставим оба варианта
-
+        case ';': if (g_selected) g_selected->ObjData.scale.z += 0.1f; break;
+        case ':': if (g_selected) g_selected->ObjData.scale.z -= 0.1f; break;
         case 'u': duplicate_selected(); break;
-        case '\t': // Tab
+        case '\t':
             if (!g_head) { printf("No objects.\n"); break; }
             if (!g_selected) g_selected = g_head;
             else if (g_selected->PNext) g_selected = g_selected->PNext;
@@ -403,11 +501,15 @@ void keyboard(unsigned char key, int x, int y) {
             printf("Clipping %s\n", clip_enabled ? "enabled" : "disabled");
             break;
         case 27: exit(0);
+        default: break;
     }
     glutPostRedisplay();
 }
 
 void special_keys(int key, int x, int y) {
+    ImGui_ImplGLUT_SpecialFunc(key, x, y);
+    if (ImGui::GetIO().WantCaptureKeyboard) return;
+
     if (move_grid_mode) {
         switch (key) {
             case GLUT_KEY_UP: grid_y += 0.1f; break;
@@ -441,11 +543,15 @@ void special_keys(int key, int x, int y) {
         case GLUT_KEY_PAGE_DOWN: g_selected->ObjData.rotation.y -= 5.0f; break;
         case GLUT_KEY_HOME:      g_selected->ObjData.position.y += 0.1f; break;
         case GLUT_KEY_END:       g_selected->ObjData.position.y -= 0.1f; break;
+        default: break;
     }
     glutPostRedisplay();
 }
 
 void mouse(int button, int state, int x, int y) {
+    ImGui_ImplGLUT_MouseFunc(button, state, x, y);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+
     if (button == GLUT_LEFT_BUTTON) {
         mouse_down = (state == GLUT_DOWN);
         last_mx = x; last_my = y;
@@ -453,6 +559,9 @@ void mouse(int button, int state, int x, int y) {
 }
 
 void motion(int x, int y) {
+    ImGui_ImplGLUT_MotionFunc(x, y);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+
     if (mouse_down) {
         int dx = x - last_mx;
         int dy = y - last_my;
@@ -467,6 +576,7 @@ void timer(int value) {
     glutTimerFunc(16, timer, 0);
 }
 
+// ---------- Главная ----------
 int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
@@ -476,6 +586,16 @@ int main(int argc, char** argv) {
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
 
+#ifdef _WIN32
+    _mkdir("Objects");
+    _mkdir("Scenes");
+    _mkdir("Screenshots");
+#else
+    mkdir("Objects", 0755);
+    mkdir("Scenes", 0755);
+    mkdir("Screenshots", 0755);
+#endif
+
     add_mesh_from_file("Objects/cube.obj");
     init_lights((vec3){1,1,1}, 0.3f, 0.7f);
     if (g_selected) g_selected->ObjData.color = (vec3){1.0f, 0.5f, 0.2f};
@@ -483,6 +603,15 @@ int main(int argc, char** argv) {
     camera_init(&camera, (vec3){0, 3, 8});
     camera_update(&camera);
     last_time = glutGet(GLUT_ELAPSED_TIME);
+
+    // Инициализация ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGLUT_Init();
+    ImGui_ImplGLUT_InstallFuncs();
+    ImGui_ImplOpenGL3_Init();
 
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
@@ -493,25 +622,8 @@ int main(int argc, char** argv) {
     glutTimerFunc(0, timer, 0);
 
     printf("=== 3D Visualizer ===\n");
-    printf("WASD+QE - camera, Mouse - rotate\n");
-    printf("Arrows - move selected object\n");
-    printf("PgUp/PgDn - rotate Y\n");
-    printf("X / Shift+X - rotate X\n");
-    printf("Z / Shift+Z - rotate Z\n");
-    printf("Home/End - move up/down\n");
-    printf("+/- - uniform scale\n");
-    printf("K/Shift+K - scale X, L/Shift+L - scale Y, ; / : - scale Z\n");
-    printf("M - grid/arrows\n");
-    printf("T - load texture (Objects/texture.jpg), Shift+T - remove\n");
-    printf("Delete - delete object\n");
-    printf("U - duplicate selected object\n");
-    printf("O - add OBJ (console)\n");
-    printf("Tab - switch selection\n");
-    printf("G - toggle grid move mode (use arrow keys to move grid)\n");
-    printf("C - toggle clipping plane\n");
-    printf("Shift+Up/Down - move clipping plane (when clipping enabled)\n");
-    printf("Ctrl+S - save scene, Ctrl+O - load scene\n");
-    printf("Esc - exit\n");
+    printf("Controls: WASD+QE - camera, Mouse - rotate\n");
+    printf("GUI window is on top. Use mouse to interact with controls.\n");
 
     glutMainLoop();
     return 0;

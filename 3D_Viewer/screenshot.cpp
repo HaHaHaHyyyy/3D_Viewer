@@ -1,4 +1,4 @@
-// screenshot.c
+// screenshot.cpp
 #include "screenshot.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -6,7 +6,8 @@
 #include <stdlib.h>
 
 void save_screenshot(const char* filename, int width, int height) {
-    unsigned char* pixels = malloc(width * height * 3);
+    unsigned char* pixels = (unsigned char*)malloc(width * height * 3);
+    if (!pixels) return; // проверка на случай ошибки выделения
     glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
     // Flip vertically
     for(int y=0; y<height/2; y++) {
