@@ -282,9 +282,38 @@ void keyboard(unsigned char key, int x, int y) {
     // Обработка Ctrl+комбинаций (коды 1..26), исключая Tab (9)
     if (key >= 1 && key <= 26 && key != 9) {
         switch (key) {
-            case 19: save_scene("scene.txt"); glutPostRedisplay(); return;
-            case 15: load_scene("scene.txt"); glutPostRedisplay(); return;
-            default: return;
+            case 19: // Ctrl+S – сохранить сцену
+                {
+                    char name[256];
+                    printf("Enter scene name (without .txt): ");
+                    if (scanf("%255s", name) == 1) {
+                        char filename[512];
+                        snprintf(filename, sizeof(filename), "%s.txt", name);
+                        save_scene(filename);
+                    } else {
+                        printf("Invalid name.\n");
+                        while (getchar() != '\n');
+                    }
+                }
+                glutPostRedisplay();
+                return;
+            case 15: // Ctrl+O – загрузить сцену
+                {
+                    char name[256];
+                    printf("Enter scene name to load (without .txt): ");
+                    if (scanf("%255s", name) == 1) {
+                        char filename[512];
+                        snprintf(filename, sizeof(filename), "%s.txt", name);
+                        load_scene(filename);
+                    } else {
+                        printf("Invalid name.\n");
+                        while (getchar() != '\n');
+                    }
+                }
+                glutPostRedisplay();
+                return;
+            default:
+                return;
         }
     }
 
@@ -343,6 +372,20 @@ void keyboard(unsigned char key, int x, int y) {
             g_selected->ObjData.rotation.y = 0;
             g_selected->ObjData.rotation.z = 0;
         } break;
+
+        // --- НЕРАВНОМЕРНОЕ МАСШТАБИРОВАНИЕ (ОСИ X, Y, Z) ---
+        case 'k': if (g_selected) g_selected->ObjData.scale.x -= 0.1f; break;
+        case 'K': if (g_selected) g_selected->ObjData.scale.x += 0.1f; break;
+        case 'l': if (g_selected) g_selected->ObjData.scale.y -= 0.1f; break;
+        case 'L': if (g_selected) g_selected->ObjData.scale.y += 0.1f; break;
+        case ';':  // обычная ; – увеличивает Z
+            if (g_selected) g_selected->ObjData.scale.z += 0.1f;
+            break;
+        case ':':  // Shift+; (двоеточие) – уменьшает Z (можно обработать и через модификатор, но для надёжности оставим и : )
+            if (g_selected) g_selected->ObjData.scale.z -= 0.1f;
+            break;
+        // Альтернативный способ: если двоеточие не приходит, то можно обработать ';' с модификатором, но оставим оба варианта
+
         case 'u': duplicate_selected(); break;
         case '\t': // Tab
             if (!g_head) { printf("No objects.\n"); break; }
