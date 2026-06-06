@@ -18,7 +18,8 @@ typedef struct {
     unsigned int texture_id;
     vec3 position, rotation, scale;
     vec3 color;
-    char* name;   // имя файла модели (например, "cube.obj")
+    char* name;           // имя файла модели
+    char* texture_name;   // путь к файлу текстуры (или NULL)
 } Mesh;
 
 Mesh mesh_load_obj(const char* filename);

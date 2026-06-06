@@ -30,13 +30,89 @@ Pt g_selected = NULL;
 Camera camera;
 int win_width = 1024, win_height = 768;
 int last_time = 0;
-bool show_grid = true, show_arrows = false;   // изменено на bool
-bool move_grid_mode = false;                  // изменено на bool
-bool clip_enabled = false;                    // изменено на bool
+bool show_grid = true, show_arrows = false;
+bool move_grid_mode = false;
+bool clip_enabled = false;
 int mouse_down = 0, last_mx = 0, last_my = 0;
 
 float grid_y = 0.0f;
 double clip_plane[4] = {0, 1, 0, 0};
+
+// ---------- Управление текстурами ----------
+struct TextureEntry {
+    unsigned int id;      // OpenGL texture ID
+    char* name;           // имя файла (например, "wood.jpg")
+    int ref_count;        // количество объектов, использующих эту текстуру
+};
+
+ImVector<TextureEntry> g_textures;   // динамический массив текстур
+int g_selected_texture_idx = -1;     // выбранная текстура в GUI
+
+// Функция добавления текстуры (загружает из файла, если ещё не загружена)
+void add_texture(const char* filename) {
+    // Проверяем, нет ли уже такой текстуры
+    for (int i = 0; i < g_textures.Size; i++) {
+        if (strcmp(g_textures[i].name, filename) == 0) {
+            printf("Texture already loaded: %s\n", filename);
+            return;
+        }
+    }
+    unsigned int tex_id = load_texture(filename);
+    while (getchar() != '\n'); // очистка буфера
+
+    if (tex_id == 0) {
+        printf("Failed to load texture: %s\n", filename);
+        return;
+    }
+    TextureEntry entry;
+    entry.id = tex_id;
+    entry.name = strdup(filename);
+    entry.ref_count = 0;
+    g_textures.push_back(entry);
+    printf("Texture loaded: %s (ID=%u)\n", filename, tex_id);
+}
+
+// Удаление текстуры из списка (освобождает OpenGL ресурс)
+void remove_texture(int idx) {
+    if (idx < 0 || idx >= g_textures.Size) return;
+    TextureEntry& tex = g_textures[idx];
+    if (tex.ref_count > 0) {
+        printf("Texture %s is still used by %d object(s), cannot delete.\n", tex.name, tex.ref_count);
+        return;
+    }
+    glDeleteTextures(1, &tex.id);
+    free(tex.name);
+    g_textures.erase(g_textures.begin() + idx);   // <- исправлено
+    if (g_selected_texture_idx >= idx) g_selected_texture_idx--;
+}
+// Поиск индекса текстуры по имени файла
+int find_texture(const char* filename) {
+    for (int i = 0; i < g_textures.Size; i++)
+        if (strcmp(g_textures[i].name, filename) == 0)
+            return i;
+    return -1;
+}
+
+// Наложение выбранной текстуры на выбранный объект
+void apply_texture_to_selected(int tex_idx) {
+    if (!g_selected) return;
+    if (tex_idx < 0 || tex_idx >= g_textures.Size) return;
+    TextureEntry& tex = g_textures[tex_idx];
+    // Если у объекта уже была текстура, уменьшаем счётчик ссылок
+    if (g_selected->ObjData.texture_id != 0) {
+        for (int i = 0; i < g_textures.Size; i++) {
+            if (g_textures[i].id == g_selected->ObjData.texture_id) {
+                g_textures[i].ref_count--;
+                break;
+            }
+        }
+    }
+    g_selected->ObjData.texture_id = tex.id;
+    if (g_selected->ObjData.texture_name) free(g_selected->ObjData.texture_name);
+    g_selected->ObjData.texture_name = strdup(tex.name);
+    tex.ref_count++;
+    printf("Applied texture %s to %s\n", tex.name, g_selected->ObjData.name);
+}
 
 // ---------- Вспомогательные функции ----------
 void add_mesh_from_file(const char* filename) {
@@ -50,6 +126,7 @@ void add_mesh_from_file(const char* filename) {
     new_mesh.rotation = (vec3){0,0,0};
     new_mesh.scale = (vec3){1,1,1};
     new_mesh.color = (vec3){1,1,1};
+    new_mesh.texture_name = NULL;   // <-- важно
     float minY = new_mesh.vertices[0].y;
     for (int i = 1; i < new_mesh.num_vertices; i++)
         if (new_mesh.vertices[i].y < minY) minY = new_mesh.vertices[i].y;
@@ -108,6 +185,7 @@ void duplicate_selected() {
     copy.scale = orig->scale;
     copy.color = orig->color;
     copy.texture_id = 0;
+    copy.texture_name = NULL;   // копия не наследует текстуру
     copy.position.x += 1.5f;
     AddElemToList(&g_head, &g_tail, &copy);
     printf("Duplicated: %s\n", orig->name);
@@ -126,6 +204,7 @@ void save_scene(const char* filename) {
         fprintf(f, "rot %f %f %f\n", m->rotation.x, m->rotation.y, m->rotation.z);
         fprintf(f, "scale %f %f %f\n", m->scale.x, m->scale.y, m->scale.z);
         fprintf(f, "color %f %f %f\n", m->color.x, m->color.y, m->color.z);
+        if (m->texture_name) fprintf(f, "texture %s\n", m->texture_name);
         cur = cur->PNext;
     }
     fclose(f);
@@ -138,6 +217,7 @@ void load_scene(const char* filename) {
     FILE* f = fopen(fullpath, "r");
     if (!f) { perror("load_scene"); return; }
 
+    // Очистка текущей сцены
     Pt cur = g_head;
     while (cur) {
         Pt next = cur->PNext;
@@ -149,12 +229,13 @@ void load_scene(const char* filename) {
     g_head = g_tail = g_selected = NULL;
 
     char line[512];
-    Mesh m;
+    Mesh m = Mesh();   // инициализация нулями (в C++ это корректно)
     int reading = 0;
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "obj ", 4) == 0) {
             if (reading) {
                 AddElemToList(&g_head, &g_tail, &m);
+                m = Mesh();   // сброс для следующего объекта
             }
             char fname[256];
             sscanf(line, "obj %255s", fname);
@@ -165,10 +246,6 @@ void load_scene(const char* filename) {
                 continue;
             }
             m.name = strdup(fname);
-            m.position = (vec3){0,0,0};
-            m.rotation = (vec3){0,0,0};
-            m.scale = (vec3){1,1,1};
-            m.color = (vec3){1,1,1};
             reading = 1;
         } else if (reading) {
             if (strncmp(line, "pos ", 4) == 0)
@@ -179,6 +256,20 @@ void load_scene(const char* filename) {
                 sscanf(line, "scale %f %f %f", &m.scale.x, &m.scale.y, &m.scale.z);
             else if (strncmp(line, "color ", 6) == 0)
                 sscanf(line, "color %f %f %f", &m.color.x, &m.color.y, &m.color.z);
+            else if (strncmp(line, "texture ", 8) == 0) {
+                char texname[256];
+                sscanf(line, "texture %255s", texname);
+                char fulltex[512];
+                snprintf(fulltex, sizeof(fulltex), "Objects/%s", texname);
+                add_texture(fulltex);
+                int idx = find_texture(fulltex);
+                if (idx >= 0) {
+                    m.texture_id = g_textures[idx].id;
+                    if (m.texture_name) free(m.texture_name);
+                    m.texture_name = strdup(g_textures[idx].name);
+                    g_textures[idx].ref_count++;
+                }
+            }
         }
     }
     if (reading) AddElemToList(&g_head, &g_tail, &m);
@@ -315,9 +406,12 @@ void display() {
             char fullpath[512];
             snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
             add_mesh_from_file(fullpath);
+        } else {
+            printf("Invalid input.\n");
         }
         while (getchar() != '\n');
     }
+
     if (ImGui::Button("Save scene")) {
         char name[256];
         printf("Scene name: ");
@@ -325,9 +419,12 @@ void display() {
             char fname[512];
             snprintf(fname, sizeof(fname), "%s.txt", name);
             save_scene(fname);
+        } else {
+            printf("Invalid input.\n");
         }
         while (getchar() != '\n');
     }
+
     ImGui::SameLine();
     if (ImGui::Button("Load scene")) {
         char name[256];
@@ -336,9 +433,12 @@ void display() {
             char fname[512];
             snprintf(fname, sizeof(fname), "%s.txt", name);
             load_scene(fname);
+        } else {
+            printf("Invalid input.\n");
         }
         while (getchar() != '\n');
     }
+
     ImGui::Separator();
 
     if (g_selected) {
@@ -347,16 +447,38 @@ void display() {
         ImGui::DragFloat3("Rotation", &g_selected->ObjData.rotation.x, 1.0f);
         ImGui::DragFloat3("Scale", &g_selected->ObjData.scale.x, 0.05f);
         ImGui::ColorEdit3("Color", &g_selected->ObjData.color.x);
-        if (ImGui::Button("Load texture")) {
-            if (g_selected->ObjData.texture_id)
-                glDeleteTextures(1, &g_selected->ObjData.texture_id);
-            g_selected->ObjData.texture_id = load_texture("Objects/texture.jpg");
+
+        // Новая панель текстур
+        ImGui::Separator();
+        ImGui::Text("Textures");
+        if (ImGui::Button("Load texture...")) {
+            char fname[256];
+            printf("Enter texture filename (in Objects/): ");
+            if (scanf("%255s", fname) == 1) {
+                char fullpath[512];
+                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+                add_texture(fullpath);
+            } else {
+                printf("Invalid input.\n");
+            }
+            while (getchar() != '\n');
         }
         ImGui::SameLine();
-        if (ImGui::Button("Remove texture")) {
-            if (g_selected->ObjData.texture_id) {
-                glDeleteTextures(1, &g_selected->ObjData.texture_id);
-                g_selected->ObjData.texture_id = 0;
+        if (ImGui::Button("Remove selected") && g_selected_texture_idx >= 0) {
+            remove_texture(g_selected_texture_idx);
+            g_selected_texture_idx = -1;
+        }
+        if (ImGui::BeginListBox("##texlist", ImVec2(200, 100))) {
+            for (int i = 0; i < g_textures.Size; i++) {
+                if (ImGui::Selectable(g_textures[i].name, g_selected_texture_idx == i)) {
+                    g_selected_texture_idx = i;
+                }
+            }
+            ImGui::EndListBox();
+        }
+        if (g_selected && g_selected_texture_idx >= 0) {
+            if (ImGui::Button("Apply to selected")) {
+                apply_texture_to_selected(g_selected_texture_idx);
             }
         }
     } else {
@@ -399,8 +521,8 @@ void keyboard(unsigned char key, int x, int y) {
                     save_scene(filename);
                 } else {
                     printf("Invalid name.\n");
-                    while (getchar() != '\n');
                 }
+                while (getchar() != '\n');
                 glutPostRedisplay();
                 return;
             }
@@ -413,8 +535,8 @@ void keyboard(unsigned char key, int x, int y) {
                     load_scene(filename);
                 } else {
                     printf("Invalid name.\n");
-                    while (getchar() != '\n');
                 }
+                while (getchar() != '\n');
                 glutPostRedisplay();
                 return;
             }
@@ -448,25 +570,40 @@ void keyboard(unsigned char key, int x, int y) {
             camera.yaw = -90; camera.pitch = 0; camera_update(&camera);
             break;
         case 127: delete_selected(); break;
+        // Старые клавиши T/T' больше не нужны, но оставим для обратной совместимости
         case 't':
             if (g_selected) {
-                if (g_selected->ObjData.texture_id) glDeleteTextures(1, &g_selected->ObjData.texture_id);
-                g_selected->ObjData.texture_id = load_texture("Objects/texture.jpg");
+                char default_tex[] = "Objects/texture.jpg";
+                add_texture(default_tex);
+                int idx = find_texture(default_tex);
+                if (idx >= 0) apply_texture_to_selected(idx);
             }
             break;
         case 'T':
             if (g_selected && g_selected->ObjData.texture_id) {
-                glDeleteTextures(1, &g_selected->ObjData.texture_id);
+                // удалить текстуру с объекта
+                for (int i = 0; i < g_textures.Size; i++) {
+                    if (g_textures[i].id == g_selected->ObjData.texture_id) {
+                        g_textures[i].ref_count--;
+                        break;
+                    }
+                }
                 g_selected->ObjData.texture_id = 0;
+                if (g_selected->ObjData.texture_name) free(g_selected->ObjData.texture_name);
+                g_selected->ObjData.texture_name = NULL;
             }
             break;
         case 'o': {
             char fname[256];
             printf("Enter OBJ filename (in Objects/): ");
-            scanf("%255s", fname);
-            char fullpath[512];
-            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
-            add_mesh_from_file(fullpath);
+            if (scanf("%255s", fname) == 1) {
+                char fullpath[512];
+                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+                add_mesh_from_file(fullpath);
+            } else {
+                printf("Invalid input.\n");
+            }
+            while (getchar() != '\n');
             break;
         }
         case 'x': if (g_selected) g_selected->ObjData.rotation.x += 5.0f; break;
@@ -624,6 +761,7 @@ int main(int argc, char** argv) {
     printf("=== 3D Visualizer ===\n");
     printf("Controls: WASD+QE - camera, Mouse - rotate\n");
     printf("GUI window is on top. Use mouse to interact with controls.\n");
+    printf("Textures: use GUI to load, select and apply textures to objects.\n");
 
     glutMainLoop();
     return 0;
