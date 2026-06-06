@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <string>
+#include <iostream>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -40,17 +42,31 @@ double clip_plane[4] = {0, 1, 0, 0};
 
 // ---------- Управление текстурами ----------
 struct TextureEntry {
-    unsigned int id;      // OpenGL texture ID
-    char* name;           // имя файла (например, "wood.jpg")
-    int ref_count;        // количество объектов, использующих эту текстуру
+    unsigned int id;
+    char* name;
+    int ref_count;
 };
 
-ImVector<TextureEntry> g_textures;   // динамический массив текстур
-int g_selected_texture_idx = -1;     // выбранная текстура в GUI
+ImVector<TextureEntry> g_textures;
+int g_selected_texture_idx = -1;
 
-// Функция добавления текстуры (загружает из файла, если ещё не загружена)
+// Безопасный ввод строки из консоли
+std::string safe_input(const char* prompt) {
+    printf("%s", prompt);
+    std::string input;
+    std::getline(std::cin, input);
+    // Удаляем пробелы и табуляции в начале и конце
+    size_t start = input.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return "";
+    size_t end = input.find_last_not_of(" \t\n\r");
+    return input.substr(start, end - start + 1);
+}
+
 void add_texture(const char* filename) {
-    // Проверяем, нет ли уже такой текстуры
+    if (filename == NULL || filename[0] == '\0') {
+        printf("Empty texture filename.\n");
+        return;
+    }
     for (int i = 0; i < g_textures.Size; i++) {
         if (strcmp(g_textures[i].name, filename) == 0) {
             printf("Texture already loaded: %s\n", filename);
@@ -58,10 +74,8 @@ void add_texture(const char* filename) {
         }
     }
     unsigned int tex_id = load_texture(filename);
-    while (getchar() != '\n'); // очистка буфера
-
     if (tex_id == 0) {
-        printf("Failed to load texture: %s\n", filename);
+        printf("Failed to load texture: %s (file not found or unsupported).\n", filename);
         return;
     }
     TextureEntry entry;
@@ -72,7 +86,6 @@ void add_texture(const char* filename) {
     printf("Texture loaded: %s (ID=%u)\n", filename, tex_id);
 }
 
-// Удаление текстуры из списка (освобождает OpenGL ресурс)
 void remove_texture(int idx) {
     if (idx < 0 || idx >= g_textures.Size) return;
     TextureEntry& tex = g_textures[idx];
@@ -82,10 +95,10 @@ void remove_texture(int idx) {
     }
     glDeleteTextures(1, &tex.id);
     free(tex.name);
-    g_textures.erase(g_textures.begin() + idx);   // <- исправлено
+    g_textures.erase(g_textures.begin() + idx);
     if (g_selected_texture_idx >= idx) g_selected_texture_idx--;
 }
-// Поиск индекса текстуры по имени файла
+
 int find_texture(const char* filename) {
     for (int i = 0; i < g_textures.Size; i++)
         if (strcmp(g_textures[i].name, filename) == 0)
@@ -93,12 +106,10 @@ int find_texture(const char* filename) {
     return -1;
 }
 
-// Наложение выбранной текстуры на выбранный объект
 void apply_texture_to_selected(int tex_idx) {
     if (!g_selected) return;
     if (tex_idx < 0 || tex_idx >= g_textures.Size) return;
     TextureEntry& tex = g_textures[tex_idx];
-    // Если у объекта уже была текстура, уменьшаем счётчик ссылок
     if (g_selected->ObjData.texture_id != 0) {
         for (int i = 0; i < g_textures.Size; i++) {
             if (g_textures[i].id == g_selected->ObjData.texture_id) {
@@ -116,9 +127,13 @@ void apply_texture_to_selected(int tex_idx) {
 
 // ---------- Вспомогательные функции ----------
 void add_mesh_from_file(const char* filename) {
+    if (filename == NULL || filename[0] == '\0') {
+        printf("Empty filename.\n");
+        return;
+    }
     Mesh new_mesh = mesh_load_obj(filename);
     if (new_mesh.num_vertices == 0) {
-        printf("Failed to load %s\n", filename);
+        printf("Failed to load %s (invalid or missing file).\n", filename);
         return;
     }
     new_mesh.name = strdup(filename);
@@ -126,7 +141,7 @@ void add_mesh_from_file(const char* filename) {
     new_mesh.rotation = (vec3){0,0,0};
     new_mesh.scale = (vec3){1,1,1};
     new_mesh.color = (vec3){1,1,1};
-    new_mesh.texture_name = NULL;   // <-- важно
+    new_mesh.texture_name = NULL;
     float minY = new_mesh.vertices[0].y;
     for (int i = 1; i < new_mesh.num_vertices; i++)
         if (new_mesh.vertices[i].y < minY) minY = new_mesh.vertices[i].y;
@@ -141,16 +156,13 @@ void delete_selected() {
         printf("No object to delete.\n");
         return;
     }
-
     Pt to_delete = g_selected;
-
     if (to_delete->PNext != NULL) {
         g_selected = to_delete->PNext;
     } else {
         g_selected = g_head;
         if (g_selected == to_delete) g_selected = NULL;
     }
-
     if (to_delete == g_head) {
         g_head = to_delete->PNext;
         if (g_head == NULL) g_tail = NULL;
@@ -162,11 +174,9 @@ void delete_selected() {
             if (to_delete->PNext == NULL) g_tail = prev;
         }
     }
-
     free(to_delete->ObjData.name);
     mesh_free(&to_delete->ObjData);
     free(to_delete);
-
     if (g_selected) {
         printf("Deleted. Now selected: %s\n", g_selected->ObjData.name);
     } else {
@@ -178,20 +188,24 @@ void duplicate_selected() {
     if (!g_selected) return;
     Mesh* orig = &g_selected->ObjData;
     Mesh copy = mesh_load_obj(orig->name);
-    if (copy.num_vertices == 0) return;
+    if (copy.num_vertices == 0) {
+        printf("Failed to duplicate: cannot reload model %s\n", orig->name);
+        return;
+    }
     copy.name = strdup(orig->name);
     copy.position = orig->position;
     copy.rotation = orig->rotation;
     copy.scale = orig->scale;
     copy.color = orig->color;
     copy.texture_id = 0;
-    copy.texture_name = NULL;   // копия не наследует текстуру
+    copy.texture_name = NULL;
     copy.position.x += 1.5f;
     AddElemToList(&g_head, &g_tail, &copy);
     printf("Duplicated: %s\n", orig->name);
 }
 
 void save_scene(const char* filename) {
+    if (filename == NULL || filename[0] == '\0') return;
     char fullpath[512];
     snprintf(fullpath, sizeof(fullpath), "Scenes/%s", filename);
     FILE* f = fopen(fullpath, "w");
@@ -212,12 +226,15 @@ void save_scene(const char* filename) {
 }
 
 void load_scene(const char* filename) {
+    if (filename == NULL || filename[0] == '\0') {
+        printf("Empty scene filename.\n");
+        return;
+    }
     char fullpath[512];
     snprintf(fullpath, sizeof(fullpath), "Scenes/%s", filename);
     FILE* f = fopen(fullpath, "r");
     if (!f) { perror("load_scene"); return; }
 
-    // Очистка текущей сцены
     Pt cur = g_head;
     while (cur) {
         Pt next = cur->PNext;
@@ -229,19 +246,19 @@ void load_scene(const char* filename) {
     g_head = g_tail = g_selected = NULL;
 
     char line[512];
-    Mesh m = Mesh();   // инициализация нулями (в C++ это корректно)
+    Mesh m = Mesh();
     int reading = 0;
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "obj ", 4) == 0) {
             if (reading) {
                 AddElemToList(&g_head, &g_tail, &m);
-                m = Mesh();   // сброс для следующего объекта
+                m = Mesh();
             }
             char fname[256];
             sscanf(line, "obj %255s", fname);
             m = mesh_load_obj(fname);
             if (m.num_vertices == 0) {
-                printf("Failed to load %s from scene\n", fname);
+                printf("Failed to load %s from scene (file missing or corrupt)\n", fname);
                 reading = 0;
                 continue;
             }
@@ -311,7 +328,6 @@ void draw_arrows() {
     glEnable(GL_LIGHTING);
 }
 
-// Объявляем коллбэки как extern "C" для совместимости с GLUT
 extern "C" {
     void display();
     void reshape(int w, int h);
@@ -399,44 +415,39 @@ void display() {
     if (ImGui::Button("Delete selected")) delete_selected();
     ImGui::SameLine();
     if (ImGui::Button("Duplicate selected")) duplicate_selected();
+
     if (ImGui::Button("Add OBJ...")) {
-        char fname[256];
-        printf("Enter OBJ filename (in Objects/): ");
-        if (scanf("%255s", fname) == 1) {
+        std::string fname = safe_input("Enter OBJ filename (in Objects/): ");
+        if (!fname.empty()) {
             char fullpath[512];
-            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
             add_mesh_from_file(fullpath);
         } else {
-            printf("Invalid input.\n");
+            printf("No filename entered.\n");
         }
-        while (getchar() != '\n');
     }
 
     if (ImGui::Button("Save scene")) {
-        char name[256];
-        printf("Scene name: ");
-        if (scanf("%255s", name) == 1) {
+        std::string name = safe_input("Scene name: ");
+        if (!name.empty()) {
             char fname[512];
-            snprintf(fname, sizeof(fname), "%s.txt", name);
+            snprintf(fname, sizeof(fname), "%s.txt", name.c_str());
             save_scene(fname);
         } else {
-            printf("Invalid input.\n");
+            printf("No scene name entered.\n");
         }
-        while (getchar() != '\n');
     }
 
     ImGui::SameLine();
     if (ImGui::Button("Load scene")) {
-        char name[256];
-        printf("Scene name to load: ");
-        if (scanf("%255s", name) == 1) {
+        std::string name = safe_input("Scene name to load: ");
+        if (!name.empty()) {
             char fname[512];
-            snprintf(fname, sizeof(fname), "%s.txt", name);
+            snprintf(fname, sizeof(fname), "%s.txt", name.c_str());
             load_scene(fname);
         } else {
-            printf("Invalid input.\n");
+            printf("No scene name entered.\n");
         }
-        while (getchar() != '\n');
     }
 
     ImGui::Separator();
@@ -448,20 +459,17 @@ void display() {
         ImGui::DragFloat3("Scale", &g_selected->ObjData.scale.x, 0.05f);
         ImGui::ColorEdit3("Color", &g_selected->ObjData.color.x);
 
-        // Новая панель текстур
         ImGui::Separator();
         ImGui::Text("Textures");
         if (ImGui::Button("Load texture...")) {
-            char fname[256];
-            printf("Enter texture filename (in Objects/): ");
-            if (scanf("%255s", fname) == 1) {
+            std::string fname = safe_input("Enter texture filename (in Objects/): ");
+            if (!fname.empty()) {
                 char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
                 add_texture(fullpath);
             } else {
-                printf("Invalid input.\n");
+                printf("No texture filename entered.\n");
             }
-            while (getchar() != '\n');
         }
         ImGui::SameLine();
         if (ImGui::Button("Remove selected") && g_selected_texture_idx >= 0) {
@@ -484,6 +492,7 @@ void display() {
     } else {
         ImGui::Text("No object selected.");
     }
+
     ImGui::Separator();
     ImGui::Checkbox("Show grid", &show_grid);
     ImGui::Checkbox("Show arrows", &show_arrows);
@@ -512,31 +521,27 @@ void keyboard(unsigned char key, int x, int y) {
 
     if (key >= 1 && key <= 26 && key != 9) {
         switch (key) {
-            case 19: {
-                char name[256];
-                printf("Enter scene name (without .txt): ");
-                if (scanf("%255s", name) == 1) {
+            case 19: { // Ctrl+S
+                std::string name = safe_input("Enter scene name (without .txt): ");
+                if (!name.empty()) {
                     char filename[512];
-                    snprintf(filename, sizeof(filename), "%s.txt", name);
+                    snprintf(filename, sizeof(filename), "%s.txt", name.c_str());
                     save_scene(filename);
                 } else {
-                    printf("Invalid name.\n");
+                    printf("No scene name entered.\n");
                 }
-                while (getchar() != '\n');
                 glutPostRedisplay();
                 return;
             }
-            case 15: {
-                char name[256];
-                printf("Enter scene name to load (without .txt): ");
-                if (scanf("%255s", name) == 1) {
+            case 15: { // Ctrl+O
+                std::string name = safe_input("Enter scene name to load (without .txt): ");
+                if (!name.empty()) {
                     char filename[512];
-                    snprintf(filename, sizeof(filename), "%s.txt", name);
+                    snprintf(filename, sizeof(filename), "%s.txt", name.c_str());
                     load_scene(filename);
                 } else {
-                    printf("Invalid name.\n");
+                    printf("No scene name entered.\n");
                 }
-                while (getchar() != '\n');
                 glutPostRedisplay();
                 return;
             }
@@ -570,7 +575,6 @@ void keyboard(unsigned char key, int x, int y) {
             camera.yaw = -90; camera.pitch = 0; camera_update(&camera);
             break;
         case 127: delete_selected(); break;
-        // Старые клавиши T/T' больше не нужны, но оставим для обратной совместимости
         case 't':
             if (g_selected) {
                 char default_tex[] = "Objects/texture.jpg";
@@ -581,7 +585,6 @@ void keyboard(unsigned char key, int x, int y) {
             break;
         case 'T':
             if (g_selected && g_selected->ObjData.texture_id) {
-                // удалить текстуру с объекта
                 for (int i = 0; i < g_textures.Size; i++) {
                     if (g_textures[i].id == g_selected->ObjData.texture_id) {
                         g_textures[i].ref_count--;
@@ -594,16 +597,14 @@ void keyboard(unsigned char key, int x, int y) {
             }
             break;
         case 'o': {
-            char fname[256];
-            printf("Enter OBJ filename (in Objects/): ");
-            if (scanf("%255s", fname) == 1) {
+            std::string fname = safe_input("Enter OBJ filename (in Objects/): ");
+            if (!fname.empty()) {
                 char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
                 add_mesh_from_file(fullpath);
             } else {
-                printf("Invalid input.\n");
+                printf("No filename entered.\n");
             }
-            while (getchar() != '\n');
             break;
         }
         case 'x': if (g_selected) g_selected->ObjData.rotation.x += 5.0f; break;
@@ -741,7 +742,6 @@ int main(int argc, char** argv) {
     camera_update(&camera);
     last_time = glutGet(GLUT_ELAPSED_TIME);
 
-    // Инициализация ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
