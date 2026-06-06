@@ -24,6 +24,8 @@ set(SOURCES
         texture.c
         lights.c
         screenshot.c
+        Lists.h
+        Lists.c
 )
 
 add_executable(viewer ${SOURCES})

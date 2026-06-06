@@ -2,6 +2,7 @@
 #include <GL/glu.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "mesh.h"
 #include "camera.h"
@@ -9,16 +10,121 @@
 #include "texture.h"
 #include "screenshot.h"
 #include "utils.h"
+#include "Lists.h"
 
 // ---------- Глобальные переменные ----------
-Mesh current_mesh;
+Pt g_head = NULL;        // голова списка объектов
+Pt g_tail = NULL;        // хвост списка
+Pt g_selected = NULL;    // текущий выбранный объект
+
 Camera camera;
 int win_width = 1024, win_height = 768;
 int last_time = 0;
-int show_grid = 1, show_arrows = 0;        // сетка включена по умолчанию
+int show_grid = 1, show_arrows = 0;
 int mouse_down = 0, last_mx = 0, last_my = 0;
 
-// ---------- Рисование сетки (бесконечный пол на y=0) ----------
+// ---------- Вспомогательные функции для работы со списком ----------
+void add_mesh_from_file(const char* filename) {
+    Mesh new_mesh = mesh_load_obj(filename);
+    if (new_mesh.num_vertices == 0) {
+        printf("Failed to load %s\n", filename);
+        return;
+    }
+    new_mesh.name = strdup(filename);
+    new_mesh.position = (vec3){0,0,0};
+    new_mesh.rotation = (vec3){0,0,0};
+    new_mesh.scale = (vec3){1,1,1};
+    new_mesh.color = (vec3){1,1,1};
+    // автоматически ставим на пол (нижняя грань на y=0)
+    float minY = new_mesh.vertices[0].y;
+    for (int i = 1; i < new_mesh.num_vertices; i++)
+        if (new_mesh.vertices[i].y < minY) minY = new_mesh.vertices[i].y;
+    new_mesh.position.y = -minY;
+    AddElemToList(&g_head, &g_tail, &new_mesh);
+    if (g_selected == NULL) g_selected = g_head;
+    printf("Added: %s (vertices=%d, faces=%d)\n", filename, new_mesh.num_vertices, new_mesh.num_faces);
+}
+
+void delete_selected() {
+    if (g_selected == NULL) return;
+    DelElemFromList(&g_head, &g_tail, &g_selected->ObjData);
+    // освобождаем память имени
+    free(g_selected->ObjData.name);
+    mesh_free(&g_selected->ObjData);
+    // выбираем следующий объект
+    g_selected = g_head;
+    if (g_selected == NULL) printf("No objects left.\n");
+}
+
+void save_scene(const char* filename) {
+    FILE* f = fopen(filename, "w");
+    if (!f) { perror("save_scene"); return; }
+    Pt cur = g_head;
+    while (cur) {
+        Mesh* m = &cur->ObjData;
+        fprintf(f, "obj %s\n", m->name);
+        fprintf(f, "pos %f %f %f\n", m->position.x, m->position.y, m->position.z);
+        fprintf(f, "rot %f %f %f\n", m->rotation.x, m->rotation.y, m->rotation.z);
+        fprintf(f, "scale %f %f %f\n", m->scale.x, m->scale.y, m->scale.z);
+        fprintf(f, "color %f %f %f\n", m->color.x, m->color.y, m->color.z);
+        cur = cur->PNext;
+    }
+    fclose(f);
+    printf("Scene saved to %s\n", filename);
+}
+
+void load_scene(const char* filename) {
+    // очищаем текущую сцену
+    while (g_head) {
+        Pt tmp = g_head;
+        g_head = g_head->PNext;
+        free(tmp->ObjData.name);
+        mesh_free(&tmp->ObjData);
+        free(tmp);
+    }
+    g_head = g_tail = g_selected = NULL;
+
+    FILE* f = fopen(filename, "r");
+    if (!f) { perror("load_scene"); return; }
+    char line[512];
+    Mesh m;
+    memset(&m, 0, sizeof(Mesh));
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "obj ", 4) == 0) {
+            // если предыдущий объект был загружен, добавляем его в список
+            if (m.name != NULL) {
+                AddElemToList(&g_head, &g_tail, &m);
+                // очищаем для следующего
+                memset(&m, 0, sizeof(Mesh));
+            }
+            char fname[256];
+            sscanf(line, "obj %255s", fname);
+            m = mesh_load_obj(fname);
+            if (m.num_vertices == 0) {
+                printf("Failed to load %s from scene file\n", fname);
+                continue;
+            }
+            m.name = strdup(fname);
+        } else if (strncmp(line, "pos ", 4) == 0) {
+            sscanf(line, "pos %f %f %f", &m.position.x, &m.position.y, &m.position.z);
+        } else if (strncmp(line, "rot ", 4) == 0) {
+            sscanf(line, "rot %f %f %f", &m.rotation.x, &m.rotation.y, &m.rotation.z);
+        } else if (strncmp(line, "scale ", 6) == 0) {
+            sscanf(line, "scale %f %f %f", &m.scale.x, &m.scale.y, &m.scale.z);
+        } else if (strncmp(line, "color ", 6) == 0) {
+            sscanf(line, "color %f %f %f", &m.color.x, &m.color.y, &m.color.z);
+        }
+    }
+    // добавляем последний объект
+    if (m.name != NULL) {
+        AddElemToList(&g_head, &g_tail, &m);
+    }
+    g_selected = g_head;
+    fclose(f);
+    printf("Scene loaded from %s\n", filename);
+}
+
+// ---------- Рисование сетки и стрелок (те же, что были) ----------
 void draw_grid() {
     glDisable(GL_LIGHTING);
     glColor3f(0.6f, 0.6f, 0.6f);
@@ -34,20 +140,16 @@ void draw_grid() {
     glEnable(GL_LIGHTING);
 }
 
-// ---------- Отрисовка стрелок (упрощённые оси) ----------
 void draw_arrows() {
     glDisable(GL_LIGHTING);
-    // X – красный
     glColor3f(1,0,0);
     glBegin(GL_LINES);
     glVertex3f(0,0,0); glVertex3f(1.5,0,0);
     glEnd();
-    // Y – зелёный
     glColor3f(0,1,0);
     glBegin(GL_LINES);
     glVertex3f(0,0,0); glVertex3f(0,1.5,0);
     glEnd();
-    // Z – синий
     glColor3f(0,0,1);
     glBegin(GL_LINES);
     glVertex3f(0,0,0); glVertex3f(0,0,1.5);
@@ -55,39 +157,14 @@ void draw_arrows() {
     glEnable(GL_LIGHTING);
 }
 
-void draw_cube_immediate() {
-    glBegin(GL_TRIANGLES);
-    // Передняя грань
-    glVertex3f(-1, -1, -1); glVertex3f( 1, -1, -1); glVertex3f( 1,  1, -1);
-    glVertex3f(-1, -1, -1); glVertex3f( 1,  1, -1); glVertex3f(-1,  1, -1);
-    // Задняя
-    glVertex3f(-1, -1,  1); glVertex3f( 1, -1,  1); glVertex3f( 1,  1,  1);
-    glVertex3f(-1, -1,  1); glVertex3f( 1,  1,  1); glVertex3f(-1,  1,  1);
-    // Левая
-    glVertex3f(-1, -1, -1); glVertex3f(-1, -1,  1); glVertex3f(-1,  1,  1);
-    glVertex3f(-1, -1, -1); glVertex3f(-1,  1,  1); glVertex3f(-1,  1, -1);
-    // Правая
-    glVertex3f( 1, -1, -1); glVertex3f( 1, -1,  1); glVertex3f( 1,  1,  1);
-    glVertex3f( 1, -1, -1); glVertex3f( 1,  1,  1); glVertex3f( 1,  1, -1);
-    // Верхняя
-    glVertex3f(-1,  1, -1); glVertex3f( 1,  1, -1); glVertex3f( 1,  1,  1);
-    glVertex3f(-1,  1, -1); glVertex3f( 1,  1,  1); glVertex3f(-1,  1,  1);
-    // Нижняя
-    glVertex3f(-1, -1, -1); glVertex3f( 1, -1, -1); glVertex3f( 1, -1,  1);
-    glVertex3f(-1, -1, -1); glVertex3f( 1, -1,  1); glVertex3f(-1, -1,  1);
-    glEnd();
-}
-
 // ---------- Display ----------
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Проекция
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     gluPerspective(45.0, (double)win_width/win_height, 0.1, 100.0);
 
-    // Камера
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     vec3 center = vec3_add(camera.pos, camera.front);
@@ -95,22 +172,41 @@ void display() {
               center.x, center.y, center.z,
               camera.up.x, camera.up.y, camera.up.z);
 
-    // Рисуем неподвижную сетку и стрелки (пол)
     if (show_grid) draw_grid();
     if (show_arrows) draw_arrows();
 
-    // Применяем трансформации объекта (перемещение, поворот, масштаб)
-    glPushMatrix();  // сохраняем матрицу камеры
-    glTranslatef(current_mesh.position.x, current_mesh.position.y, current_mesh.position.z);
-    glRotatef(current_mesh.rotation.x, 1.0f, 0.0f, 0.0f);
-    glRotatef(current_mesh.rotation.y, 0.0f, 1.0f, 0.0f);
-    glRotatef(current_mesh.rotation.z, 0.0f, 0.0f, 1.0f);
-    glScalef(current_mesh.scale.x, current_mesh.scale.y, current_mesh.scale.z);
+    // Отрисовка всех объектов
+    Pt cur = g_head;
+    while (cur) {
+        Mesh* m = &cur->ObjData;
+        glPushMatrix();
+        glTranslatef(m->position.x, m->position.y, m->position.z);
+        glRotatef(m->rotation.x, 1,0,0);
+        glRotatef(m->rotation.y, 0,1,0);
+        glRotatef(m->rotation.z, 0,0,1);
+        glScalef(m->scale.x, m->scale.y, m->scale.z);
+        mesh_draw(m, (mat4){0}, (mat4){0});
+        glPopMatrix();
+        cur = cur->PNext;
+    }
 
-    // Отрисовка модели
-    mesh_draw(&current_mesh, (mat4){0}, (mat4){0});
-
-    glPopMatrix();  // восстанавливаем матрицу камеры
+    // Рисуем рамку вокруг выбранного объекта
+    if (g_selected) {
+        Mesh* m = &g_selected->ObjData;
+        glDisable(GL_LIGHTING);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glColor3f(1,1,1);
+        glPushMatrix();
+        glTranslatef(m->position.x, m->position.y, m->position.z);
+        glRotatef(m->rotation.x, 1,0,0);
+        glRotatef(m->rotation.y, 0,1,0);
+        glRotatef(m->rotation.z, 0,0,1);
+        glScalef(m->scale.x, m->scale.y, m->scale.z);
+        mesh_draw(m, (mat4){0}, (mat4){0});
+        glPopMatrix();
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glEnable(GL_LIGHTING);
+    }
 
     glutSwapBuffers();
 }
@@ -129,58 +225,109 @@ void keyboard(unsigned char key, int x, int y) {
     camera_process_key(&camera, key, dt);
 
     switch (key) {
-        case 'm':                 // переключение режимов
+        case 'm':
             show_grid = !show_grid;
             show_arrows = !show_arrows;
             break;
-        case '+': case '=':       // масштаб объекта
-            current_mesh.scale.x += 0.1f;
-            current_mesh.scale.y += 0.1f;
-            current_mesh.scale.z += 0.1f;
+        case '+': case '=':
+            if (g_selected) {
+                g_selected->ObjData.scale.x += 0.1f;
+                g_selected->ObjData.scale.y += 0.1f;
+                g_selected->ObjData.scale.z += 0.1f;
+            }
             break;
         case '-':
-            current_mesh.scale.x -= 0.1f;
-            current_mesh.scale.y -= 0.1f;
-            current_mesh.scale.z -= 0.1f;
+            if (g_selected) {
+                g_selected->ObjData.scale.x -= 0.1f;
+                g_selected->ObjData.scale.y -= 0.1f;
+                g_selected->ObjData.scale.z -= 0.1f;
+            }
             break;
-        case 'r':                 // сброс поворота камеры
+        case 'r':
             camera.yaw = -90;
             camera.pitch = 0;
             camera_update(&camera);
             break;
-        case 127:                 // Delete – удалить объект
-            mesh_free(&current_mesh);
+        case 127: // Delete
+            delete_selected();
             break;
-        case 't':                 // загрузить текстуру
-            if (current_mesh.texture_id)
-                glDeleteTextures(1, &current_mesh.texture_id);
-            current_mesh.texture_id = load_texture("Objects/texture.jpg");
+        case 't':
+            if (g_selected) {
+                if (g_selected->ObjData.texture_id)
+                    glDeleteTextures(1, &g_selected->ObjData.texture_id);
+                g_selected->ObjData.texture_id = load_texture("Objects/texture.jpg");
+            }
             break;
-        case 'T':                 // удалить текстуру
-            if (current_mesh.texture_id)
-                glDeleteTextures(1, &current_mesh.texture_id);
-            current_mesh.texture_id = 0;
+        case 'T':
+            if (g_selected && g_selected->ObjData.texture_id) {
+                glDeleteTextures(1, &g_selected->ObjData.texture_id);
+                g_selected->ObjData.texture_id = 0;
+            }
             break;
-        case 27:                  // Esc – выход
+        case 'o':
+            {
+                char fname[256];
+                printf("Enter OBJ filename (in Objects/): ");
+                scanf("%255s", fname);
+                char fullpath[512];
+                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname);
+                add_mesh_from_file(fullpath);
+            }
+            break;
+
+        case 'x':   // вращение вокруг X на +5 градусов
+            if (g_selected)
+                g_selected->ObjData.rotation.x += 5.0f;
+            break;
+        case 'X':   // вращение вокруг X на -5 градусов (Shift+X)
+            if (g_selected)
+                g_selected->ObjData.rotation.x -= 5.0f;
+            break;
+        case 'z':   // вращение вокруг Z на +5 градусов
+            if (g_selected)
+                g_selected->ObjData.rotation.z += 5.0f;
+            break;
+        case 'Z':   // вращение вокруг Z на -5 градусов (Shift+Z)
+            if (g_selected)
+                g_selected->ObjData.rotation.z -= 5.0f;
+            break;
+        case 'R':   // сброс вращения выбранного объекта (Shift+r)
+            if (g_selected) {
+                g_selected->ObjData.rotation.x = 0;
+                g_selected->ObjData.rotation.y = 0;
+                g_selected->ObjData.rotation.z = 0;
+            }
+            break;
+
+        case '\t': // Tab
+            if (g_selected && g_selected->PNext)
+                g_selected = g_selected->PNext;
+            else if (g_selected)
+                g_selected = g_head;
+            if (g_selected)
+                printf("Selected: %s\n", g_selected->ObjData.name);
+            break;
+        case 27:
             exit(0);
     }
     glutPostRedisplay();
 }
 
-// ---------- Специальные клавиши (стрелки, PgUp/PgDn) ----------
 void special_keys(int key, int x, int y) {
+    if (!g_selected) return;
     switch (key) {
-        case GLUT_KEY_UP:    current_mesh.position.z -= 0.1f; break;
-        case GLUT_KEY_DOWN:  current_mesh.position.z += 0.1f; break;
-        case GLUT_KEY_LEFT:  current_mesh.position.x -= 0.1f; break;
-        case GLUT_KEY_RIGHT: current_mesh.position.x += 0.1f; break;
-        case GLUT_KEY_PAGE_UP:   current_mesh.rotation.y += 5.0f; break;
-        case GLUT_KEY_PAGE_DOWN: current_mesh.rotation.y -= 5.0f; break;
+        case GLUT_KEY_UP:    g_selected->ObjData.position.z -= 0.1f; break;
+        case GLUT_KEY_DOWN:  g_selected->ObjData.position.z += 0.1f; break;
+        case GLUT_KEY_LEFT:  g_selected->ObjData.position.x -= 0.1f; break;
+        case GLUT_KEY_RIGHT: g_selected->ObjData.position.x += 0.1f; break;
+        case GLUT_KEY_PAGE_UP:   g_selected->ObjData.rotation.y += 5.0f; break;
+        case GLUT_KEY_PAGE_DOWN: g_selected->ObjData.rotation.y -= 5.0f; break;
+        case GLUT_KEY_HOME:      g_selected->ObjData.position.y += 0.1f; break;
+        case GLUT_KEY_END:       g_selected->ObjData.position.y -= 0.1f; break;
     }
     glutPostRedisplay();
 }
 
-// ---------- Мышь ----------
 void mouse(int button, int state, int x, int y) {
     if (button == GLUT_LEFT_BUTTON) {
         mouse_down = (state == GLUT_DOWN);
@@ -198,13 +345,12 @@ void motion(int x, int y) {
     }
 }
 
-// ---------- Таймер для непрерывного обновления ----------
 void timer(int value) {
     glutPostRedisplay();
     glutTimerFunc(16, timer, 0);
 }
 
-// ---------- Главная функция ----------
+// ---------- Главная ----------
 int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
@@ -214,34 +360,15 @@ int main(int argc, char** argv) {
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
 
-    // Загрузка модели (измеряем время)
-    clock_t start = clock();
-    current_mesh = mesh_load_obj("Objects/cube.obj");
-    clock_t end = clock();
-    double elapsed = (double)(end - start) / CLOCKS_PER_SEC * 1000.0;
-    printf("OBJ load time: %.2f ms\n", elapsed);
+    add_mesh_from_file("Objects/cube.obj");
 
-    // Сохраняем время в CSV (Excel)
-    FILE* log = fopen("times.csv", "a");
-    fprintf(log, "%s,%.2f\n", "cube.obj", elapsed);
-    fclose(log);
-
-    // Освещение (цвет, интенсивность)
     init_lights((vec3){1,1,1}, 0.3f, 0.7f);
+    if (g_selected) g_selected->ObjData.color = (vec3){1.0f, 0.5f, 0.2f};
 
-    // Цвет объекта (можно менять через colbObjColor, но здесь константа)
-    current_mesh.color = (vec3){1.0f, 0.5f, 0.2f};  // оранжевый
-    float minY = current_mesh.vertices[0].y;
-    for (int i = 1; i < current_mesh.num_vertices; i++)
-        if (current_mesh.vertices[i].y < minY) minY = current_mesh.vertices[i].y;
-    current_mesh.position.y = -minY;
-
-    // Камера
     camera_init(&camera, (vec3){0, 3, 8});
     camera_update(&camera);
     last_time = glutGet(GLUT_ELAPSED_TIME);
 
-    // Регистрация callback'ов
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboard);
@@ -251,16 +378,20 @@ int main(int argc, char** argv) {
     glutTimerFunc(0, timer, 0);
 
     printf("=== 3D Visualizer ===\n");
-    printf("WASD + Q/E - move camera\n");
-    printf("Mouse - rotate camera\n");
-    printf("Arrows - move object\n");
-    printf("PgUp/PgDn - rotate object\n");
-    printf("+/- - scale object\n");
-    printf("M - toggle grid/arrows (Edit Mode)\n");
-    printf("T - load texture, Shift+T - remove texture\n");
-    printf("Delete - remove object\n");
-    printf("F12 - save screenshot\n");
-    printf("Vertices loaded: %d, Faces loaded: %d\n", current_mesh.num_vertices, current_mesh.num_faces);
+    printf("WASD+QE - camera, Mouse - rotate\n");
+    printf("Arrows - move selected object\n");
+    printf("PgUp/PgDn - rotate Y\n");
+    printf("X - rotate X\n");
+    printf("Z - rotate Z\n");
+    printf("Home/End - move up/down\n");
+    printf("+/- - scale\n");
+    printf("M - grid/arrows\n");
+    printf("T - load texture, Shift+T - remove\n");
+    printf("Delete - delete object\n");
+    printf("O - add OBJ (console)\n");
+    printf("Tab - switch selection\n");
+    printf("Ctrl+S - save scene, Ctrl+O - load scene (not implemented)\n");
+    printf("Esc - exit\n");
 
     glutMainLoop();
     return 0;
