@@ -33,6 +33,7 @@
 Pt g_head = NULL;
 Pt g_tail = NULL;
 Pt g_selected = NULL;
+bool show_help_window = false;
 
 Camera camera;
 int win_width = 1024, win_height = 768;
@@ -602,6 +603,17 @@ void display() {
     ImGui::NewFrame();
 
     ImGui::Begin("3D Viewer Controls", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::Separator();
+
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 70.0f);
+
+    if (ImGui::Button("Help"))
+    {
+        show_help_window = true;
+    }
+
+    ImGui::Separator();
     ImGui::Text("Objects in scene:");
     if (ImGui::BeginListBox("##list", ImVec2(200, 120))) {
         Pt cur2 = g_head;
@@ -712,6 +724,75 @@ void display() {
     ImGui::Text("Camera pos: %.2f %.2f %.2f", camera.pos.x, camera.pos.y, camera.pos.z);
     ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
     ImGui::End();
+
+    if (show_help_window)
+    {
+        ImGui::Begin(
+            "Polyx Help",
+            &show_help_window,
+            ImGuiWindowFlags_AlwaysAutoResize
+        );
+
+        ImGui::Text("Polyx 3D Viewer");
+        ImGui::Text("Version 1.0");
+        ImGui::Text("Author: Vasiliy Zolotenkov");
+
+        ImGui::Separator();
+
+        ImGui::Text("Camera");
+        ImGui::BulletText("W A S D - Move camera");
+        ImGui::BulletText("Q / E - Move up/down");
+        ImGui::BulletText("Left mouse drag - Rotate camera");
+        ImGui::BulletText("R - Reset camera");
+
+        ImGui::Separator();
+
+        ImGui::Text("Objects");
+        ImGui::BulletText("Arrow keys - Move object");
+        ImGui::BulletText("Home / End - Move object on Y");
+        ImGui::BulletText("PageUp / PageDown - Rotate Y");
+        ImGui::BulletText("Tab - Select next object");
+        ImGui::BulletText("Delete - Remove object");
+        ImGui::BulletText("U - Duplicate object");
+
+        ImGui::Separator();
+
+        ImGui::Text("Rotation");
+        ImGui::BulletText("X / Shift+X - Rotate X");
+        ImGui::BulletText("Z / Shift+Z - Rotate Z");
+
+        ImGui::Separator();
+
+        ImGui::Text("Scaling");
+        ImGui::BulletText("+ / - - Uniform scale");
+        ImGui::BulletText("K / Shift+K - Scale X");
+        ImGui::BulletText("L / Shift+L - Scale Y");
+        ImGui::BulletText("; / : - Scale Z");
+
+        ImGui::Separator();
+
+        ImGui::Text("Scene");
+        ImGui::BulletText("Ctrl+S - Save scene");
+        ImGui::BulletText("Ctrl+O - Load scene");
+        ImGui::BulletText("Add OBJ - Import model");
+        ImGui::BulletText("Load Texture - Import texture");
+
+        ImGui::Separator();
+
+        ImGui::Text("View");
+        ImGui::BulletText("M - Toggle grid and axes");
+        ImGui::BulletText("G - Grid movement mode");
+        ImGui::BulletText("C - Clipping plane");
+
+        ImGui::Separator();
+
+        ImGui::TextWrapped(
+            "Tip: all scene editing can be performed "
+            "through the GUI without using the console."
+        );
+
+        ImGui::End();
+    }
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
