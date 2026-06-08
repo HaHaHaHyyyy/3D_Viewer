@@ -37,13 +37,15 @@ set(SOURCES
 
 add_executable(viewer ${SOURCES})
 
-target_link_libraries(viewer
+target_link_libraries(
+        viewer
         libfreeglut.a
         opengl32
         glu32
         winmm
         gdi32
         stdc++      # стандартная библиотека C++
+        comdlg32
 )
 
 if(EXISTS "${MSYS2_ROOT}/bin/freeglut.dll")

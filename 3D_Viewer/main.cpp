@@ -24,6 +24,11 @@
 #include "imgui_impl_glut.h"
 #include "imgui_impl_opengl3.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <commdlg.h>
+#endif
+
 // ---------- Глобальные переменные ----------
 Pt g_head = NULL;
 Pt g_tail = NULL;
@@ -47,20 +52,62 @@ struct TextureEntry {
     int ref_count;
 };
 
+static bool OpenFileDialog(
+    const char* filter,
+    char* outPath,
+    DWORD outSize)
+{
+#ifdef _WIN32
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+
+    outPath[0] = '\0';
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = outPath;
+    ofn.nMaxFile = outSize;
+    ofn.lpstrFilter = filter;
+    ofn.Flags =
+    OFN_PATHMUSTEXIST |
+    OFN_FILEMUSTEXIST |
+    OFN_NOCHANGEDIR;
+
+    return GetOpenFileNameA(&ofn);
+#else
+    return false;
+#endif
+}
+
+static bool SaveFileDialog(
+    const char* filter,
+    char* outPath,
+    DWORD outSize)
+{
+#ifdef _WIN32
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+
+    outPath[0] = '\0';
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = outPath;
+    ofn.nMaxFile = outSize;
+    ofn.lpstrFilter = filter;
+
+    ofn.Flags =
+        OFN_PATHMUSTEXIST |
+        OFN_OVERWRITEPROMPT;
+
+    return GetSaveFileNameA(&ofn);
+#else
+    return false;
+#endif
+}
+
 ImVector<TextureEntry> g_textures;
 int g_selected_texture_idx = -1;
-
-// Безопасный ввод строки из консоли
-std::string safe_input(const char* prompt) {
-    printf("%s", prompt);
-    std::string input;
-    std::getline(std::cin, input);
-    // Удаляем пробелы и табуляции в начале и конце
-    size_t start = input.find_first_not_of(" \t\n\r");
-    if (start == std::string::npos) return "";
-    size_t end = input.find_last_not_of(" \t\n\r");
-    return input.substr(start, end - start + 1);
-}
 
 void add_texture(const char* filename) {
     if (filename == NULL || filename[0] == '\0') {
@@ -126,29 +173,64 @@ void apply_texture_to_selected(int tex_idx) {
 }
 
 // ---------- Вспомогательные функции ----------
-void add_mesh_from_file(const char* filename) {
-    if (filename == NULL || filename[0] == '\0') {
-        printf("Empty filename.\n");
+void add_mesh_from_file(const char* filename)
+{
+    char cwd[1024];
+    _getcwd(cwd, sizeof(cwd));
+
+    printf("CWD = %s\n", cwd);
+    printf("Adding OBJ = %s\n", filename);
+
+    if (!filename || !filename[0])
         return;
-    }
+
     Mesh new_mesh = mesh_load_obj(filename);
-    if (new_mesh.num_vertices == 0) {
-        printf("Failed to load %s (invalid or missing file).\n", filename);
+
+    if (new_mesh.num_vertices == 0)
+    {
+        printf("Failed to load %s\n", filename);
         return;
     }
-    new_mesh.name = strdup(filename);
+
+    const char* rel = strstr(filename, "Objects\\");
+    if (!rel)
+        rel = strstr(filename, "Objects/");
+
+    if (rel)
+    {
+        char fixed[512];
+        strcpy(fixed, rel);
+
+        for (int i = 0; fixed[i]; i++)
+        {
+            if (fixed[i] == '\\')
+                fixed[i] = '/';
+        }
+
+        new_mesh.name = strdup(fixed);
+    }
+    else
+    {
+        new_mesh.name = strdup(filename);
+    }
+
     new_mesh.position = (vec3){0,0,0};
     new_mesh.rotation = (vec3){0,0,0};
-    new_mesh.scale = (vec3){1,1,1};
-    new_mesh.color = (vec3){1,1,1};
-    new_mesh.texture_name = NULL;
+    new_mesh.scale    = (vec3){1,1,1};
+    new_mesh.color    = (vec3){1,1,1};
+
     float minY = new_mesh.vertices[0].y;
+
     for (int i = 1; i < new_mesh.num_vertices; i++)
-        if (new_mesh.vertices[i].y < minY) minY = new_mesh.vertices[i].y;
+        if (new_mesh.vertices[i].y < minY)
+            minY = new_mesh.vertices[i].y;
+
     new_mesh.position.y = -minY;
+
     AddElemToList(&g_head, &g_tail, &new_mesh);
-    if (g_selected == NULL) g_selected = g_head;
-    printf("Added: %s (v=%d, f=%d)\n", filename, new_mesh.num_vertices, new_mesh.num_faces);
+
+    if (!g_selected)
+        g_selected = g_head;
 }
 
 void delete_selected() {
@@ -184,115 +266,236 @@ void delete_selected() {
     }
 }
 
-void duplicate_selected() {
-    if (!g_selected) return;
+void duplicate_selected()
+{
+    if (!g_selected)
+        return;
+
     Mesh* orig = &g_selected->ObjData;
+
     Mesh copy = mesh_load_obj(orig->name);
-    if (copy.num_vertices == 0) {
-        printf("Failed to duplicate: cannot reload model %s\n", orig->name);
+
+    if (copy.num_vertices == 0)
+    {
+        printf("Cannot duplicate %s\n", orig->name);
         return;
     }
+
     copy.name = strdup(orig->name);
+
     copy.position = orig->position;
     copy.rotation = orig->rotation;
-    copy.scale = orig->scale;
-    copy.color = orig->color;
-    copy.texture_id = 0;
-    copy.texture_name = NULL;
+    copy.scale    = orig->scale;
+    copy.color    = orig->color;
+
+    copy.texture_id = orig->texture_id;
+
+    if (orig->texture_name)
+        copy.texture_name = strdup(orig->texture_name);
+
     copy.position.x += 1.5f;
+
     AddElemToList(&g_head, &g_tail, &copy);
-    printf("Duplicated: %s\n", orig->name);
 }
 
-void save_scene(const char* filename) {
-    if (filename == NULL || filename[0] == '\0') return;
-    char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "Scenes/%s", filename);
-    FILE* f = fopen(fullpath, "w");
-    if (!f) { perror("save_scene"); return; }
+void save_scene(const char* filename)
+{
+    FILE* f = fopen(filename, "w");
+
+    if (!f)
+        return;
+
     Pt cur = g_head;
-    while (cur) {
+
+    while (cur)
+    {
         Mesh* m = &cur->ObjData;
+
         fprintf(f, "obj %s\n", m->name);
-        fprintf(f, "pos %f %f %f\n", m->position.x, m->position.y, m->position.z);
-        fprintf(f, "rot %f %f %f\n", m->rotation.x, m->rotation.y, m->rotation.z);
-        fprintf(f, "scale %f %f %f\n", m->scale.x, m->scale.y, m->scale.z);
-        fprintf(f, "color %f %f %f\n", m->color.x, m->color.y, m->color.z);
-        if (m->texture_name) fprintf(f, "texture %s\n", m->texture_name);
+
+        fprintf(f,
+                "pos %f %f %f\n",
+                m->position.x,
+                m->position.y,
+                m->position.z);
+
+        fprintf(f,
+                "rot %f %f %f\n",
+                m->rotation.x,
+                m->rotation.y,
+                m->rotation.z);
+
+        fprintf(f,
+                "scale %f %f %f\n",
+                m->scale.x,
+                m->scale.y,
+                m->scale.z);
+
+        fprintf(f,
+                "color %f %f %f\n",
+                m->color.x,
+                m->color.y,
+                m->color.z);
+
+        if (m->texture_name)
+            fprintf(f,
+                    "texture %s\n",
+                    m->texture_name);
+
         cur = cur->PNext;
     }
+
     fclose(f);
-    printf("Scene saved to %s\n", fullpath);
 }
 
-void load_scene(const char* filename) {
-    if (filename == NULL || filename[0] == '\0') {
-        printf("Empty scene filename.\n");
+void load_scene(const char* filename)
+{
+    FILE* f = fopen(filename, "r");
+
+    if (!f)
+    {
+        printf("Cannot open scene: %s\n", filename);
         return;
     }
-    char fullpath[512];
-    snprintf(fullpath, sizeof(fullpath), "Scenes/%s", filename);
-    FILE* f = fopen(fullpath, "r");
-    if (!f) { perror("load_scene"); return; }
 
     Pt cur = g_head;
-    while (cur) {
+
+    while (cur)
+    {
         Pt next = cur->PNext;
-        free(cur->ObjData.name);
+
+        if (cur->ObjData.name)
+            free(cur->ObjData.name);
+
         mesh_free(&cur->ObjData);
+
         free(cur);
+
         cur = next;
     }
-    g_head = g_tail = g_selected = NULL;
+
+    g_head = NULL;
+    g_tail = NULL;
+    g_selected = NULL;
 
     char line[512];
-    Mesh m = Mesh();
-    int reading = 0;
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "obj ", 4) == 0) {
-            if (reading) {
+
+    Mesh m = {0};
+
+    bool reading = false;
+
+    while (fgets(line, sizeof(line), f))
+    {
+        line[strcspn(line, "\r\n")] = '\0';
+
+        if (strncmp(line, "obj ", 4) == 0)
+        {
+            if (reading)
+            {
                 AddElemToList(&g_head, &g_tail, &m);
-                m = Mesh();
+                m = (Mesh){0};
             }
-            char fname[256];
-            sscanf(line, "obj %255s", fname);
-            m = mesh_load_obj(fname);
-            if (m.num_vertices == 0) {
-                printf("Failed to load %s from scene (file missing or corrupt)\n", fname);
-                reading = 0;
+
+            char* objpath = line + 4;
+
+            while (*objpath == ' ')
+                objpath++;
+
+            char cwd[1024];
+            _getcwd(cwd, sizeof(cwd));
+
+            printf("CWD = %s\n", cwd);
+            printf("Loading OBJ = %s\n", objpath);
+
+            Mesh loaded = mesh_load_obj(objpath);
+
+            if (loaded.num_vertices == 0)
+            {
+                printf("Failed to load %s\n", objpath);
+                reading = false;
                 continue;
             }
-            m.name = strdup(fname);
-            reading = 1;
-        } else if (reading) {
+
+            loaded.name = strdup(objpath);
+
+            m = loaded;
+            reading = true;
+        }
+        else if (reading)
+        {
             if (strncmp(line, "pos ", 4) == 0)
-                sscanf(line, "pos %f %f %f", &m.position.x, &m.position.y, &m.position.z);
+            {
+                sscanf(
+                    line,
+                    "pos %f %f %f",
+                    &m.position.x,
+                    &m.position.y,
+                    &m.position.z);
+            }
             else if (strncmp(line, "rot ", 4) == 0)
-                sscanf(line, "rot %f %f %f", &m.rotation.x, &m.rotation.y, &m.rotation.z);
+            {
+                sscanf(
+                    line,
+                    "rot %f %f %f",
+                    &m.rotation.x,
+                    &m.rotation.y,
+                    &m.rotation.z);
+            }
             else if (strncmp(line, "scale ", 6) == 0)
-                sscanf(line, "scale %f %f %f", &m.scale.x, &m.scale.y, &m.scale.z);
+            {
+                sscanf(
+                    line,
+                    "scale %f %f %f",
+                    &m.scale.x,
+                    &m.scale.y,
+                    &m.scale.z);
+            }
             else if (strncmp(line, "color ", 6) == 0)
-                sscanf(line, "color %f %f %f", &m.color.x, &m.color.y, &m.color.z);
-            else if (strncmp(line, "texture ", 8) == 0) {
+            {
+                sscanf(
+                    line,
+                    "color %f %f %f",
+                    &m.color.x,
+                    &m.color.y,
+                    &m.color.z);
+            }
+            else if (strncmp(line, "texture ", 8) == 0)
+            {
                 char texname[256];
-                sscanf(line, "texture %255s", texname);
-                char fulltex[512];
-                snprintf(fulltex, sizeof(fulltex), "Objects/%s", texname);
-                add_texture(fulltex);
-                int idx = find_texture(fulltex);
-                if (idx >= 0) {
+
+                sscanf(
+                    line,
+                    "texture %255s",
+                    texname);
+
+                add_texture(texname);
+
+                int idx = find_texture(texname);
+
+                if (idx >= 0)
+                {
                     m.texture_id = g_textures[idx].id;
-                    if (m.texture_name) free(m.texture_name);
-                    m.texture_name = strdup(g_textures[idx].name);
+
+                    if (m.texture_name)
+                        free(m.texture_name);
+
+                    m.texture_name =
+                        strdup(g_textures[idx].name);
+
                     g_textures[idx].ref_count++;
                 }
             }
         }
     }
-    if (reading) AddElemToList(&g_head, &g_tail, &m);
+
+    if (reading)
+        AddElemToList(&g_head, &g_tail, &m);
+
     g_selected = g_head;
+
     fclose(f);
-    printf("Scene loaded from %s\n", fullpath);
+
+    printf("Scene loaded successfully.\n");
 }
 
 // ---------- Рисование ----------
@@ -416,37 +619,42 @@ void display() {
     ImGui::SameLine();
     if (ImGui::Button("Duplicate selected")) duplicate_selected();
 
-    if (ImGui::Button("Add OBJ...")) {
-        std::string fname = safe_input("Enter OBJ filename (in Objects/): ");
-        if (!fname.empty()) {
-            char fullpath[512];
-            snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
-            add_mesh_from_file(fullpath);
-        } else {
-            printf("No filename entered.\n");
+    if (ImGui::Button("Add OBJ..."))
+    {
+        char filename[MAX_PATH];
+
+        if (OpenFileDialog(
+            "OBJ Files\0*.obj\0",
+            filename,
+            MAX_PATH))
+        {
+            add_mesh_from_file(filename);
         }
     }
 
-    if (ImGui::Button("Save scene")) {
-        std::string name = safe_input("Scene name: ");
-        if (!name.empty()) {
-            char fname[512];
-            snprintf(fname, sizeof(fname), "%s.txt", name.c_str());
-            save_scene(fname);
-        } else {
-            printf("No scene name entered.\n");
+    if (ImGui::Button("Save scene"))
+    {
+        char filename[MAX_PATH];
+
+        if (SaveFileDialog(
+            "Scene Files\0*.txt\0",
+            filename,
+            MAX_PATH))
+        {
+            save_scene(filename);
         }
     }
 
-    ImGui::SameLine();
-    if (ImGui::Button("Load scene")) {
-        std::string name = safe_input("Scene name to load: ");
-        if (!name.empty()) {
-            char fname[512];
-            snprintf(fname, sizeof(fname), "%s.txt", name.c_str());
-            load_scene(fname);
-        } else {
-            printf("No scene name entered.\n");
+    if (ImGui::Button("Load scene"))
+    {
+        char filename[MAX_PATH];
+
+        if (OpenFileDialog(
+            "Scene Files\0*.txt\0",
+            filename,
+            MAX_PATH))
+        {
+            load_scene(filename);
         }
     }
 
@@ -461,14 +669,16 @@ void display() {
 
         ImGui::Separator();
         ImGui::Text("Textures");
-        if (ImGui::Button("Load texture...")) {
-            std::string fname = safe_input("Enter texture filename (in Objects/): ");
-            if (!fname.empty()) {
-                char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
-                add_texture(fullpath);
-            } else {
-                printf("No texture filename entered.\n");
+        if (ImGui::Button("Load texture..."))
+        {
+            char filename[MAX_PATH];
+
+            if (OpenFileDialog(
+                "Images\0*.png;*.jpg;*.jpeg;*.bmp\0",
+                filename,
+                MAX_PATH))
+            {
+                add_texture(filename);
             }
         }
         ImGui::SameLine();
@@ -522,26 +732,30 @@ void keyboard(unsigned char key, int x, int y) {
     if (key >= 1 && key <= 26 && key != 9) {
         switch (key) {
             case 19: { // Ctrl+S
-                std::string name = safe_input("Enter scene name (without .txt): ");
-                if (!name.empty()) {
-                    char filename[512];
-                    snprintf(filename, sizeof(filename), "%s.txt", name.c_str());
+                char filename[MAX_PATH];
+
+                if (SaveFileDialog(
+                    "Scene Files\0*.txt\0",
+                    filename,
+                    MAX_PATH))
+                {
                     save_scene(filename);
-                } else {
-                    printf("No scene name entered.\n");
                 }
+
                 glutPostRedisplay();
                 return;
             }
             case 15: { // Ctrl+O
-                std::string name = safe_input("Enter scene name to load (without .txt): ");
-                if (!name.empty()) {
-                    char filename[512];
-                    snprintf(filename, sizeof(filename), "%s.txt", name.c_str());
+                char filename[MAX_PATH];
+
+                if (OpenFileDialog(
+                    "Scene Files\0*.txt\0",
+                    filename,
+                    MAX_PATH))
+                {
                     load_scene(filename);
-                } else {
-                    printf("No scene name entered.\n");
                 }
+
                 glutPostRedisplay();
                 return;
             }
@@ -597,14 +811,16 @@ void keyboard(unsigned char key, int x, int y) {
             }
             break;
         case 'o': {
-            std::string fname = safe_input("Enter OBJ filename (in Objects/): ");
-            if (!fname.empty()) {
-                char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "Objects/%s", fname.c_str());
-                add_mesh_from_file(fullpath);
-            } else {
-                printf("No filename entered.\n");
+            char filename[MAX_PATH];
+
+            if (OpenFileDialog(
+                "OBJ Files\0*.obj\0",
+                filename,
+                MAX_PATH))
+            {
+                add_mesh_from_file(filename);
             }
+
             break;
         }
         case 'x': if (g_selected) g_selected->ObjData.rotation.x += 5.0f; break;
@@ -715,7 +931,14 @@ void timer(int value) {
 }
 
 // ---------- Главная ----------
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
+#ifdef _WIN32
+    char cwd[1024];
+    _getcwd(cwd, sizeof(cwd));
+    printf("Current directory: %s\n", cwd);
+#endif
+
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(win_width, win_height);
@@ -735,17 +958,25 @@ int main(int argc, char** argv) {
 #endif
 
     add_mesh_from_file("Objects/cube.obj");
-    init_lights((vec3){1,1,1}, 0.3f, 0.7f);
-    if (g_selected) g_selected->ObjData.color = (vec3){1.0f, 0.5f, 0.2f};
 
-    camera_init(&camera, (vec3){0, 3, 8});
+    init_lights((vec3){1.0f, 1.0f, 1.0f}, 0.3f, 0.7f);
+
+    if (g_selected)
+        g_selected->ObjData.color = (vec3){1.0f, 0.5f, 0.2f};
+
+    camera_init(&camera, (vec3){0.0f, 3.0f, 8.0f});
     camera_update(&camera);
+
     last_time = glutGet(GLUT_ELAPSED_TIME);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+
     ImGui::StyleColorsDark();
+
     ImGui_ImplGLUT_Init();
     ImGui_ImplGLUT_InstallFuncs();
     ImGui_ImplOpenGL3_Init();
@@ -764,5 +995,6 @@ int main(int argc, char** argv) {
     printf("Textures: use GUI to load, select and apply textures to objects.\n");
 
     glutMainLoop();
+
     return 0;
 }
