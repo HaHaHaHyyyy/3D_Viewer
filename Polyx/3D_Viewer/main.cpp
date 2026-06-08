@@ -1038,9 +1038,16 @@ int main(int argc, char** argv)
     mkdir("Screenshots", 0755);
 #endif
 
-    add_mesh_from_file("Objects/cube.obj");
+    if (argc > 1)
+    {
+        load_scene(argv[1]);
+    }
+    else
+    {
+        add_mesh_from_file("Objects/cube.obj");
+    }
 
-    init_lights((vec3){1.0f, 1.0f, 1.0f}, 0.3f, 0.7f);
+        init_lights((vec3){1.0f, 1.0f, 1.0f}, 0.3f, 0.7f);
 
     if (g_selected)
         g_selected->ObjData.color = (vec3){1.0f, 0.5f, 0.2f};

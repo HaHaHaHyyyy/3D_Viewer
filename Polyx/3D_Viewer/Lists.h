@@ -1,7 +1,7 @@
 #ifndef INC_3D_VIEWER_LISTS_H
 #define INC_3D_VIEWER_LISTS_H
 
-#include "mesh.h"   // определяет структуру Mesh и все нужные поля
+#include "mesh.h"
 
 // Указатель на узел списка
 typedef struct TNode* Pt;
