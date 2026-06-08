@@ -26,6 +26,7 @@ set(LAUNCHER_SOURCES
         ../3D_Viewer/imgui_widgets.cpp
         ../3D_Viewer/imgui_impl_glut.cpp
         ../3D_Viewer/imgui_impl_opengl3.cpp
+        PreviewGenerator.cpp
 )
 
 add_executable(Launcher ${LAUNCHER_SOURCES})

@@ -6,11 +6,11 @@
 #include <sys/stat.h>
 #include <string>
 #include <iostream>
-
+#include "PreviewGenerator.h"
 #ifdef _WIN32
 #include <direct.h>
 #endif
-
+#include <filesystem>
 #include "mesh.h"
 #include "camera.h"
 #include "lights.h"
@@ -542,71 +542,139 @@ extern "C" {
     void timer(int value);
 }
 
-void display() {
+void display()
+{
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(45.0, (double)win_width/win_height, 0.1, 100.0);
+    gluPerspective(
+        45.0,
+        (double)win_width / win_height,
+        0.1,
+        100.0);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    vec3 center = vec3_add(camera.pos, camera.front);
-    gluLookAt(camera.pos.x, camera.pos.y, camera.pos.z,
-              center.x, center.y, center.z,
-              camera.up.x, camera.up.y, camera.up.z);
 
-    if (clip_enabled) {
+    vec3 center = vec3_add(camera.pos, camera.front);
+
+    gluLookAt(
+        camera.pos.x,
+        camera.pos.y,
+        camera.pos.z,
+        center.x,
+        center.y,
+        center.z,
+        camera.up.x,
+        camera.up.y,
+        camera.up.z);
+
+    if (clip_enabled)
+    {
         glEnable(GL_CLIP_PLANE0);
         glClipPlane(GL_CLIP_PLANE0, clip_plane);
-    } else {
+    }
+    else
+    {
         glDisable(GL_CLIP_PLANE0);
     }
 
-    if (show_grid) draw_grid();
-    if (show_arrows) draw_arrows();
+    if (show_grid)
+        draw_grid();
+
+    if (show_arrows)
+        draw_arrows();
 
     Pt cur = g_head;
-    while (cur) {
+
+    while (cur)
+    {
         Mesh* m = &cur->ObjData;
+
         glPushMatrix();
-        glTranslatef(m->position.x, m->position.y, m->position.z);
-        glRotatef(m->rotation.x, 1,0,0);
-        glRotatef(m->rotation.y, 0,1,0);
-        glRotatef(m->rotation.z, 0,0,1);
-        glScalef(m->scale.x, m->scale.y, m->scale.z);
-        mesh_draw(m, (mat4){0}, (mat4){0});
+
+        glTranslatef(
+            m->position.x,
+            m->position.y,
+            m->position.z);
+
+        glRotatef(m->rotation.x, 1, 0, 0);
+        glRotatef(m->rotation.y, 0, 1, 0);
+        glRotatef(m->rotation.z, 0, 0, 1);
+
+        glScalef(
+            m->scale.x,
+            m->scale.y,
+            m->scale.z);
+
+        mesh_draw(
+            m,
+            (mat4){0},
+            (mat4){0});
+
         glPopMatrix();
+
         cur = cur->PNext;
     }
 
-    if (g_selected) {
+    if (g_selected)
+    {
         Mesh* m = &g_selected->ObjData;
+
         glDisable(GL_LIGHTING);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glColor3f(1,1,1);
+
+        glPolygonMode(
+            GL_FRONT_AND_BACK,
+            GL_LINE);
+
+        glColor3f(1, 1, 1);
+
         glPushMatrix();
-        glTranslatef(m->position.x, m->position.y, m->position.z);
-        glRotatef(m->rotation.x, 1,0,0);
-        glRotatef(m->rotation.y, 0,1,0);
-        glRotatef(m->rotation.z, 0,0,1);
-        glScalef(m->scale.x, m->scale.y, m->scale.z);
-        mesh_draw(m, (mat4){0}, (mat4){0});
+
+        glTranslatef(
+            m->position.x,
+            m->position.y,
+            m->position.z);
+
+        glRotatef(m->rotation.x, 1, 0, 0);
+        glRotatef(m->rotation.y, 0, 1, 0);
+        glRotatef(m->rotation.z, 0, 0, 1);
+
+        glScalef(
+            m->scale.x,
+            m->scale.y,
+            m->scale.z);
+
+        mesh_draw(
+            m,
+            (mat4){0},
+            (mat4){0});
+
         glPopMatrix();
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        glPolygonMode(
+            GL_FRONT_AND_BACK,
+            GL_FILL);
+
         glEnable(GL_LIGHTING);
     }
 
-    // ---------- ImGui ----------
+    // ---------------- ImGui ----------------
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGLUT_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::Begin("3D Viewer Controls", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Begin(
+        "3D Viewer Controls",
+        NULL,
+        ImGuiWindowFlags_AlwaysAutoResize);
 
     ImGui::Separator();
 
-    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 70.0f);
+    ImGui::SetCursorPosX(
+        ImGui::GetWindowWidth() - 70.0f);
 
     if (ImGui::Button("Help"))
     {
@@ -614,22 +682,40 @@ void display() {
     }
 
     ImGui::Separator();
+
     ImGui::Text("Objects in scene:");
-    if (ImGui::BeginListBox("##list", ImVec2(200, 120))) {
+
+    if (ImGui::BeginListBox(
+        "##list",
+        ImVec2(200, 120)))
+    {
         Pt cur2 = g_head;
-        while (cur2) {
-            bool is_selected = (cur2 == g_selected);
-            if (ImGui::Selectable(cur2->ObjData.name, is_selected)) {
+
+        while (cur2)
+        {
+            bool selected =
+                (cur2 == g_selected);
+
+            if (ImGui::Selectable(
+                cur2->ObjData.name,
+                selected))
+            {
                 g_selected = cur2;
             }
+
             cur2 = cur2->PNext;
         }
+
         ImGui::EndListBox();
     }
 
-    if (ImGui::Button("Delete selected")) delete_selected();
+    if (ImGui::Button("Delete selected"))
+        delete_selected();
+
     ImGui::SameLine();
-    if (ImGui::Button("Duplicate selected")) duplicate_selected();
+
+    if (ImGui::Button("Duplicate selected"))
+        duplicate_selected();
 
     if (ImGui::Button("Add OBJ..."))
     {
@@ -644,6 +730,8 @@ void display() {
         }
     }
 
+    // ---------- Save scene + preview ----------
+
     if (ImGui::Button("Save scene"))
     {
         char filename[MAX_PATH];
@@ -654,6 +742,11 @@ void display() {
             MAX_PATH))
         {
             save_scene(filename);
+
+            save_scene_preview(
+                filename,
+                win_width,
+                win_height);
         }
     }
 
@@ -672,15 +765,35 @@ void display() {
 
     ImGui::Separator();
 
-    if (g_selected) {
-        ImGui::Text("Selected: %s", g_selected->ObjData.name);
-        ImGui::DragFloat3("Position", &g_selected->ObjData.position.x, 0.1f);
-        ImGui::DragFloat3("Rotation", &g_selected->ObjData.rotation.x, 1.0f);
-        ImGui::DragFloat3("Scale", &g_selected->ObjData.scale.x, 0.05f);
-        ImGui::ColorEdit3("Color", &g_selected->ObjData.color.x);
+    if (g_selected)
+    {
+        ImGui::Text(
+            "Selected: %s",
+            g_selected->ObjData.name);
+
+        ImGui::DragFloat3(
+            "Position",
+            &g_selected->ObjData.position.x,
+            0.1f);
+
+        ImGui::DragFloat3(
+            "Rotation",
+            &g_selected->ObjData.rotation.x,
+            1.0f);
+
+        ImGui::DragFloat3(
+            "Scale",
+            &g_selected->ObjData.scale.x,
+            0.05f);
+
+        ImGui::ColorEdit3(
+            "Color",
+            &g_selected->ObjData.color.x);
 
         ImGui::Separator();
+
         ImGui::Text("Textures");
+
         if (ImGui::Button("Load texture..."))
         {
             char filename[MAX_PATH];
@@ -693,45 +806,98 @@ void display() {
                 add_texture(filename);
             }
         }
+
         ImGui::SameLine();
-        if (ImGui::Button("Remove selected") && g_selected_texture_idx >= 0) {
-            remove_texture(g_selected_texture_idx);
+
+        if (ImGui::Button("Remove selected")
+            && g_selected_texture_idx >= 0)
+        {
+            remove_texture(
+                g_selected_texture_idx);
+
             g_selected_texture_idx = -1;
         }
-        if (ImGui::BeginListBox("##texlist", ImVec2(200, 100))) {
-            for (int i = 0; i < g_textures.Size; i++) {
-                if (ImGui::Selectable(g_textures[i].name, g_selected_texture_idx == i)) {
+
+        if (ImGui::BeginListBox(
+            "##texlist",
+            ImVec2(200, 100)))
+        {
+            for (int i = 0;
+                 i < g_textures.Size;
+                 i++)
+            {
+                if (ImGui::Selectable(
+                    g_textures[i].name,
+                    g_selected_texture_idx == i))
+                {
                     g_selected_texture_idx = i;
                 }
             }
+
             ImGui::EndListBox();
         }
-        if (g_selected && g_selected_texture_idx >= 0) {
-            if (ImGui::Button("Apply to selected")) {
-                apply_texture_to_selected(g_selected_texture_idx);
+
+        if (g_selected &&
+            g_selected_texture_idx >= 0)
+        {
+            if (ImGui::Button(
+                "Apply to selected"))
+            {
+                apply_texture_to_selected(
+                    g_selected_texture_idx);
             }
         }
-    } else {
-        ImGui::Text("No object selected.");
+    }
+    else
+    {
+        ImGui::Text(
+            "No object selected.");
     }
 
     ImGui::Separator();
-    ImGui::Checkbox("Show grid", &show_grid);
-    ImGui::Checkbox("Show arrows", &show_arrows);
-    ImGui::DragFloat("Grid Y", &grid_y, 0.05f);
-    ImGui::Checkbox("Clipping plane", &clip_enabled);
-    ImGui::DragFloat("Clip offset", (float*)&clip_plane[3], 0.05f);
-    ImGui::Text("Camera pos: %.2f %.2f %.2f", camera.pos.x, camera.pos.y, camera.pos.z);
-    ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+
+    ImGui::Checkbox(
+        "Show grid",
+        &show_grid);
+
+    ImGui::Checkbox(
+        "Show arrows",
+        &show_arrows);
+
+    ImGui::DragFloat(
+        "Grid Y",
+        &grid_y,
+        0.05f);
+
+    ImGui::Checkbox(
+        "Clipping plane",
+        &clip_enabled);
+
+    ImGui::DragFloat(
+        "Clip offset",
+        (float*)&clip_plane[3],
+        0.05f);
+
+    ImGui::Text(
+        "Camera pos: %.2f %.2f %.2f",
+        camera.pos.x,
+        camera.pos.y,
+        camera.pos.z);
+
+    ImGui::Text(
+        "FPS: %.1f",
+        ImGui::GetIO().Framerate);
+
     ImGui::End();
+
+    // ---------------- Help ----------------
 
     if (show_help_window)
     {
         ImGui::Begin(
             "Polyx Help",
             &show_help_window,
-            ImGuiWindowFlags_AlwaysAutoResize
-        );
+            ImGuiWindowFlags_AlwaysAutoResize);
 
         ImGui::Text("Polyx 3D Viewer");
         ImGui::Text("Version 1.0");
@@ -784,18 +950,12 @@ void display() {
         ImGui::BulletText("G - Grid movement mode");
         ImGui::BulletText("C - Clipping plane");
 
-        ImGui::Separator();
-
-        ImGui::TextWrapped(
-            "Tip: all scene editing can be performed "
-            "through the GUI without using the console."
-        );
-
         ImGui::End();
     }
 
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplOpenGL3_RenderDrawData(
+        ImGui::GetDrawData());
 
     glutSwapBuffers();
 }
@@ -821,6 +981,16 @@ void keyboard(unsigned char key, int x, int y) {
                     MAX_PATH))
                 {
                     save_scene(filename);
+
+                    std::filesystem::path scenePath(filename);
+
+                    std::string sceneName =
+                        scenePath.stem().string();
+
+                    save_scene_preview(
+                        sceneName.c_str(),
+                        win_width,
+                        win_height);
                 }
 
                 glutPostRedisplay();
@@ -935,7 +1105,12 @@ void keyboard(unsigned char key, int x, int y) {
             clip_enabled = !clip_enabled;
             printf("Clipping %s\n", clip_enabled ? "enabled" : "disabled");
             break;
-        case 27: exit(0);
+        case 27:
+        {
+            save_screenshot("Screenshots/preview.jpg", win_width, win_height);
+            exit(0);
+        }
+            break;
         default: break;
     }
     glutPostRedisplay();

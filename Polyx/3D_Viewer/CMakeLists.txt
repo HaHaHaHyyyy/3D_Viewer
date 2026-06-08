@@ -33,6 +33,8 @@ set(SOURCES
         imgui_widgets.cpp
         imgui_impl_glut.cpp
         imgui_impl_opengl3.cpp
+        PreviewGenerator.cpp
+        PreviewGenerator.h
 )
 
 add_executable(viewer ${SOURCES})
