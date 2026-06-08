@@ -33,11 +33,12 @@ void display()
     ImGui::SetNextWindowSize(io.DisplaySize);
 
     ImGui::Begin(
-        "Polyx 2.0",
-        nullptr,
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoCollapse
+    "MainWindow",
+    nullptr,
+    ImGuiWindowFlags_NoTitleBar |
+    ImGuiWindowFlags_NoResize |
+    ImGuiWindowFlags_NoMove |
+    ImGuiWindowFlags_NoCollapse
     );
 
     // ===== Верхняя панель =====
@@ -45,10 +46,13 @@ void display()
     ImGui::Text("POLYX 2.0");
 
     ImGui::SameLine(
-        ImGui::GetWindowWidth() - 40
+        ImGui::GetWindowContentRegionMax().x - 30
     );
 
-    ImGui::Button("?");
+    if (ImGui::Button("?"))
+    {
+        // окно справки позже
+    }
 
     ImGui::Separator();
 
@@ -89,8 +93,8 @@ void display()
         true
     );
 
-    const float cardWidth = 180.0f;
-    const float cardHeight = 120.0f;
+    const float cardWidth = 220.0f;
+    const float cardHeight = 140.0f;
 
     int cardsPerRow =
         (int)(ImGui::GetContentRegionAvail().x /
@@ -151,7 +155,7 @@ void display()
         LaunchScene("");
     }
 
-    ImGui::Text("Add Scene");
+    ImGui::Text("Add Scene...");
 
     ImGui::EndGroup();
 
@@ -228,6 +232,11 @@ int main(int argc, char** argv)
 {
     // Сканируем сцены
     g_scenes = ScanScenes();
+
+    if (!g_scenes.empty())
+    {
+        g_selected_scene = 0;
+    }
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
