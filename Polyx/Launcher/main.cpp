@@ -11,13 +11,72 @@
 #include <GL/glut.h>
 #include <GL/glu.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 namespace fs = std::filesystem;
 
 // ---------- Глобальные переменные ----------
 std::vector<SceneInfo> g_scenes;
 int g_selected_scene = -1;
-
+bool g_showAboutWindow = false;
+GLuint g_developerTexture = 0;
 // ---------- Функции GLUT ----------
+GLuint LoadTexture(const char* filename)
+{
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* data =
+        stbi_load(
+            filename,
+            &width,
+            &height,
+            &channels,
+            4);
+
+    if (!data)
+    {
+        std::cout
+            << "Failed to load image: "
+            << filename
+            << std::endl;
+
+        return 0;
+    }
+
+    GLuint texture;
+
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MIN_FILTER,
+        GL_LINEAR);
+
+    glTexParameteri(
+        GL_TEXTURE_2D,
+        GL_TEXTURE_MAG_FILTER,
+        GL_LINEAR);
+
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        width,
+        height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        data);
+
+    stbi_image_free(data);
+
+    return texture;
+}
+
 void display()
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -51,7 +110,7 @@ void display()
 
     if (ImGui::Button("?"))
     {
-        // окно справки позже
+        g_showAboutWindow = true;
     }
 
     ImGui::Separator();
@@ -192,6 +251,90 @@ void display()
 
     ImGui::End();
 
+    // ===== Окно "О разработчике" =====
+
+    if (g_showAboutWindow)
+    {
+        ImGui::OpenPopup("About Developer");
+    }
+
+    if (ImGui::BeginPopupModal(
+            "About Developer",
+            &g_showAboutWindow,
+            ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("О РАЗРАБОТЧИКЕ");
+        ImGui::Separator();
+
+        // Фото слева
+        ImGui::BeginGroup();
+
+        if (g_developerTexture)
+        {
+            ImGui::Image(
+                (ImTextureID)(intptr_t)g_developerTexture,
+                ImVec2(220, 280));
+        }
+        else
+        {
+            ImGui::Text("Photo not found");
+        }
+
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        // Информация справа
+        ImGui::BeginGroup();
+
+        ImGui::Text("ФИО:");
+        ImGui::Text("Золотенков");
+        ImGui::Text("Василий");
+        ImGui::Text("Васильевич");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Группа:");
+        ImGui::Text("551002");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Университет:");
+        ImGui::Text("БГУИР");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Факультет:");
+        ImGui::Text("ФКСиС");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Специальность:");
+        ImGui::Text("ПИ");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Курс:");
+        ImGui::Text("1");
+
+        ImGui::EndGroup();
+
+        ImGui::Separator();
+
+        ImGui::Text("Начало работы: 18.02.2026");
+        ImGui::Text("Конец работы: 08.06.2026");
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Закрыть"))
+        {
+            g_showAboutWindow = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(
         ImGui::GetDrawData());
@@ -248,7 +391,17 @@ int main(int argc, char** argv)
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    g_developerTexture =
+    LoadTexture(
+        "../../Assets/developer.png"
+    );
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.Fonts->AddFontFromFileTTF(
+    "C:/Windows/Fonts/arial.ttf",
+    16.0f,
+    nullptr,
+    io.Fonts->GetGlyphRangesCyrillic()
+    );
     io.DisplaySize = ImVec2(800.0f, 600.0f);
     ImGui::StyleColorsDark();
 
