@@ -1,13 +1,16 @@
-// Lists.c
 #include "Lists.h"
+#include <cstdio>
+#include "mesh.h"   // здесь уже нужно полное определение Mesh для доступа к полям (например, name)
 #include <stdlib.h>
 #include <string.h>
 
 void AddElemToList(Pt* HeadElem, Pt* TailElem, const Mesh* Elem) {
+    printf("AddElemToList: allocating new node\n");
+    fflush(stdout);
     Pt NewNode = (Pt)malloc(sizeof(TNode));
-    NewNode->ObjData = *Elem;   // поверхностное копирование
+    if (!NewNode) { printf("malloc failed!\n"); return; }
+    NewNode->ObjData = *Elem;
     NewNode->PNext = NULL;
-
     if (*HeadElem == NULL) {
         *HeadElem = NewNode;
     } else {
@@ -17,27 +20,27 @@ void AddElemToList(Pt* HeadElem, Pt* TailElem, const Mesh* Elem) {
 }
 
 void DelElemFromList(Pt* HeadElem, Pt* TailElem, const Mesh* Elem) {
-    Pt current = *HeadElem, prev = NULL;
-    while (current != NULL) {
-        if (current->ObjData.name && Elem->name && strcmp(current->ObjData.name, Elem->name) == 0) {
+    Pt cur = *HeadElem, prev = NULL;
+    while (cur) {
+        if (cur->ObjData.name && Elem->name && strcmp(cur->ObjData.name, Elem->name) == 0) {
             if (prev == NULL) {
-                *HeadElem = current->PNext;
+                *HeadElem = cur->PNext;
                 if (*HeadElem == NULL) *TailElem = NULL;
             } else {
-                prev->PNext = current->PNext;
-                if (current->PNext == NULL) *TailElem = prev;
+                prev->PNext = cur->PNext;
+                if (cur->PNext == NULL) *TailElem = prev;
             }
-            free(current);
+            free(cur);
             return;
         }
-        prev = current;
-        current = current->PNext;
+        prev = cur;
+        cur = cur->PNext;
     }
 }
 
 void UpdateObjInList(const Mesh* ObjD, Pt HeadElem) {
     Pt cur = HeadElem;
-    while (cur != NULL) {
+    while (cur) {
         if (cur->ObjData.name && ObjD->name && strcmp(cur->ObjData.name, ObjD->name) == 0) {
             cur->ObjData = *ObjD;
             return;
@@ -48,7 +51,7 @@ void UpdateObjInList(const Mesh* ObjD, Pt HeadElem) {
 
 Mesh GetObjByName(Pt HeadElem, const char* Name) {
     Pt cur = HeadElem;
-    while (cur != NULL) {
+    while (cur) {
         if (cur->ObjData.name && strcmp(cur->ObjData.name, Name) == 0) {
             return cur->ObjData;
         }

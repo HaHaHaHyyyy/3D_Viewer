@@ -1,18 +1,15 @@
-#ifndef INC_3D_VIEWER_LISTS_H
-#define INC_3D_VIEWER_LISTS_H
+#ifndef LISTS_H
+#define LISTS_H
 
-#include "mesh.h"   // определяет структуру Mesh и все нужные поля
+#include "mesh.h"   // после исправления mesh.h не включает Lists.h
 
-// Указатель на узел списка
-typedef struct TNode* Pt;
-
-// Узел списка
 typedef struct TNode {
-    Mesh ObjData;     // теперь поле называется ObjData и имеет тип Mesh
-    Pt PNext;
+    Mesh ObjData;
+    struct TNode* PNext;
 } TNode;
 
-// Прототипы функций для работы со списком (объявлены в Lists.c)
+typedef TNode* Pt;
+
 void AddElemToList(Pt* HeadElem, Pt* TailElem, const Mesh* Elem);
 void UpdateObjInList(const Mesh* ObjD, Pt HeadElem);
 void DelElemFromList(Pt* HeadElem, Pt* TailElem, const Mesh* Elem);

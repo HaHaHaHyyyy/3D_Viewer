@@ -1,25 +1,23 @@
 cmake_minimum_required(VERSION 3.10)
 project(3D_Viewer)
 
-# Переключаем на C++
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Указываем пути к MSYS2 (mingw64)
 set(MSYS2_ROOT "C:/msys64/mingw64")
 
-# Подключаем заголовки
 include_directories(${MSYS2_ROOT}/include)
-
-# Указываем папку с библиотеками
 link_directories(${MSYS2_ROOT}/lib)
 
-# Определяем макрос для статической линковки freeglut
 add_definitions(-DFREEGLUT_STATIC)
 
-# Все исходники (main.cpp теперь)
 set(SOURCES
         main.cpp
+        scene.cpp
+        texture_manager.cpp
+        undo.cpp
+        ui.cpp
+        input.cpp
         mesh.cpp
         camera.cpp
         utils.cpp
@@ -43,7 +41,7 @@ target_link_libraries(viewer
         glu32
         winmm
         gdi32
-        stdc++      # стандартная библиотека C++
+        stdc++
 )
 
 if(EXISTS "${MSYS2_ROOT}/bin/freeglut.dll")
