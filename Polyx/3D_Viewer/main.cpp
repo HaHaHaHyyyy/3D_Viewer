@@ -1014,6 +1014,11 @@ void timer(int value) {
 // ---------- Главная ----------
 int main(int argc, char** argv)
 {
+
+#ifdef _WIN32
+    _chdir("../../");
+#endif
+
 #ifdef _WIN32
     char cwd[1024];
     _getcwd(cwd, sizeof(cwd));
