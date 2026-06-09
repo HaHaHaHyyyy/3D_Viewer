@@ -46,11 +46,26 @@ target_link_libraries(Launcher
         comdlg32
 )
 
-# Опционально: скопировать DLL FreeGLUT рядом с exe после сборки
+# Копирование freeglut.dll рядом с Launcher.exe
 if(EXISTS "${MSYS2_ROOT}/bin/freeglut.dll")
-    add_custom_command(TARGET Launcher POST_BUILD
+
+    add_custom_command(
+            TARGET Launcher POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${MSYS2_ROOT}/bin/freeglut.dll"
             $<TARGET_FILE_DIR:Launcher>
     )
+
 endif()
+
+# Сборка установщика через Inno Setup
+add_custom_target(installer
+        DEPENDS Launcher
+
+        COMMAND "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
+        "${CMAKE_SOURCE_DIR}/installer.iss"
+
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+
+        COMMENT "Building Polyx installer..."
+)

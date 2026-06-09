@@ -16,6 +16,10 @@
 
 #include "screenshot.h" // обязательно, чтобы была save_screenshot
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 // ---------- Глобальные переменные ----------
@@ -98,6 +102,10 @@ void display()
 
         // Сканируем сцены заново
         g_scenes = ScanScenes();
+
+        std::cout << "Loaded scenes: "
+          << g_scenes.size()
+          << std::endl;
 
         // Загружаем превью после создания OpenGL-контекста
         for (auto& scene : g_scenes)
@@ -284,6 +292,17 @@ void timer(int value)
     glutTimerFunc(16, timer, 0);
 }
 
+fs::path GetApplicationDir()
+{
+#ifdef _WIN32
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+    return fs::path(exePath).parent_path();
+#else
+    return fs::current_path();
+#endif
+}
+
 // ---------- main ----------
 int main(int argc, char** argv)
 {
@@ -315,8 +334,25 @@ int main(int argc, char** argv)
         }
     }
 
-    g_developerTexture = LoadTexture("../../Assets/developer.png");
-    std::cout << "Developer texture ID: " << g_developerTexture << std::endl;
+    fs::path appDir = GetApplicationDir();
+
+    fs::path developerPath =
+        appDir.parent_path().parent_path() /
+        "Assets" /
+        "developer.png";
+
+    std::cout
+        << "Developer image path: "
+        << developerPath
+        << std::endl;
+
+    g_developerTexture =
+        LoadTexture(developerPath.string().c_str());
+
+    std::cout
+        << "Developer texture ID: "
+        << g_developerTexture
+        << std::endl;
 
     // ImGui
     IMGUI_CHECKVERSION();
