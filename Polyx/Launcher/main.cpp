@@ -16,10 +16,6 @@
 
 #include "screenshot.h" // обязательно, чтобы была save_screenshot
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 namespace fs = std::filesystem;
 
 // ---------- Глобальные переменные ----------
@@ -83,6 +79,7 @@ void display()
     ImGui::Separator();
 
     // ===== Левая панель =====
+    // ===== Левая панель =====
     ImGui::BeginChild("LeftPanel", ImVec2(220, 0), true);
     ImGui::Text("Scenes");
     ImGui::Separator();
@@ -90,7 +87,7 @@ void display()
     // ----- Кнопка Refresh -----
     if (ImGui::Button("Refresh Scenes"))
     {
-        // Удаляем старые превью
+        // Удаляем старые текстуры превью
         for (auto& scene : g_scenes)
         {
             if (scene.previewTexture != 0)
@@ -100,22 +97,26 @@ void display()
             }
         }
 
-        // Сканируем сцены заново
+        // Повторное сканирование сцен
         g_scenes = ScanScenes();
 
         std::cout << "Loaded scenes: "
-          << g_scenes.size()
-          << std::endl;
+                  << g_scenes.size()
+                  << std::endl;
 
-        // Загружаем превью после создания OpenGL-контекста
+        // Повторная загрузка превью
         for (auto& scene : g_scenes)
         {
-            if (!scene.previewFile.empty() && fs::exists(scene.previewFile))
-                scene.previewTexture = LoadTexture(scene.previewFile.c_str());
+            if (!scene.previewFile.empty() &&
+                fs::exists(scene.previewFile))
+            {
+                scene.previewTexture =
+                    LoadTexture(scene.previewFile.c_str());
+            }
         }
 
-        // Сброс выбранной сцены
-        g_selected_scene = g_scenes.empty() ? -1 : 0;
+        g_selected_scene =
+            g_scenes.empty() ? -1 : 0;
     }
 
     ImGui::Separator();
@@ -123,8 +124,13 @@ void display()
     for (size_t i = 0; i < g_scenes.size(); i++)
     {
         bool selected = (g_selected_scene == (int)i);
-        if (ImGui::Selectable(g_scenes[i].name.c_str(), selected))
+
+        if (ImGui::Selectable(
+                g_scenes[i].name.c_str(),
+                selected))
+        {
             g_selected_scene = (int)i;
+        }
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -138,7 +144,6 @@ void display()
     if (cardsPerRow < 1) cardsPerRow = 1;
 
     int cardIndex = 0;
-
     for (size_t i = 0; i < g_scenes.size(); i++)
     {
         ImGui::PushID((int)i);
@@ -151,38 +156,25 @@ void display()
 
         ImDrawList* draw = ImGui::GetWindowDrawList();
 
-        // Рисуем превью
         if (g_scenes[i].previewTexture != 0)
         {
-            draw->AddImage((ImTextureID)(uintptr_t)g_scenes[i].previewTexture,
-                           p,
-                           ImVec2(p.x + cardWidth, p.y + cardHeight));
+            draw->AddImage((ImTextureID)(uintptr_t)g_scenes[i].previewTexture, p, ImVec2(p.x + cardWidth, p.y + cardHeight));
         }
         else
         {
-            draw->AddRectFilled(p,
-                                ImVec2(p.x + cardWidth, p.y + cardHeight),
-                                IM_COL32(70, 70, 90, 255));
+            draw->AddRectFilled(p, ImVec2(p.x + cardWidth, p.y + cardHeight), IM_COL32(70, 70, 90, 255));
         }
 
-        draw->AddRect(p,
-                      ImVec2(p.x + cardWidth, p.y + cardHeight),
-                      IM_COL32(180, 180, 180, 255));
+        draw->AddRect(p, ImVec2(p.x + cardWidth, p.y + cardHeight), IM_COL32(180, 180, 180, 255));
 
-        draw->AddText(ImVec2(p.x + 10, p.y + 10),
-                      IM_COL32(255,255,255,255),
-                      g_scenes[i].name.c_str());
+        draw->AddText(ImVec2(p.x + 10, p.y + 10), IM_COL32(255, 255, 255, 255), g_scenes[i].name.c_str());
 
         char buf[64];
         sprintf(buf, "%d objects", g_scenes[i].objectCount);
-        draw->AddText(ImVec2(p.x + 10, p.y + cardHeight - 25),
-                      IM_COL32(220,220,220,255),
-                      buf);
+        draw->AddText(ImVec2(p.x + 10, p.y + cardHeight - 25), IM_COL32(220, 220, 220, 255), buf);
 
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Objects: %d\nCreated: %s",
-                              g_scenes[i].objectCount,
-                              g_scenes[i].creationDate.c_str());
+            ImGui::SetTooltip("Objects: %d\nCreated: %s", g_scenes[i].objectCount, g_scenes[i].creationDate.c_str());
 
         ImGui::EndGroup();
         ImGui::PopID();
@@ -192,7 +184,7 @@ void display()
             ImGui::SameLine();
     }
 
-    // ===== Карточка создания новой сцены =====
+    // Карточка создания новой сцены
     ImGui::PushID("new_scene");
     ImGui::BeginGroup();
     if (ImGui::Button("+", ImVec2(cardWidth, cardHeight)))
@@ -201,7 +193,7 @@ void display()
     ImGui::EndGroup();
     ImGui::PopID();
 
-    // ===== Информация о выбранной сцене =====
+    // Информация о выбранной сцене
     if (g_selected_scene >= 0)
     {
         ImGui::Separator();
@@ -209,7 +201,6 @@ void display()
         ImGui::Text("Selected: %s", scene.name.c_str());
         ImGui::Text("Objects: %d", scene.objectCount);
         ImGui::Text("Created: %s", scene.creationDate.c_str());
-
         if (ImGui::Button("Launch Scene"))
             LaunchScene(scene.sceneFile);
     }
@@ -217,19 +208,16 @@ void display()
     ImGui::EndChild();
     ImGui::End();
 
-    // ===== Окно "О разработчике" =====
+    // О разработчике
     if (g_showAboutWindow) ImGui::OpenPopup("About Developer");
-    if (ImGui::BeginPopupModal("About Developer", &g_showAboutWindow,
-                               ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal("About Developer", &g_showAboutWindow, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::Text("О РАЗРАБОТЧИКЕ");
         ImGui::Separator();
 
         ImGui::BeginGroup();
         if (g_developerTexture != 0)
-        {
             ImGui::Image((ImTextureID)(uintptr_t)g_developerTexture, ImVec2(220, 280));
-        }
         else
             ImGui::Text("Photo not found");
         ImGui::EndGroup();
@@ -237,35 +225,25 @@ void display()
         ImGui::SameLine();
         ImGui::BeginGroup();
 
-        ImGui::Text("ФИО:");
-        ImGui::Text("Золотенков");
-        ImGui::Text("Василий");
-        ImGui::Text("Васильевич");
-
-        ImGui::Spacing();
-        ImGui::Text("Группа:");
-        ImGui::Text("551002");
-
-        ImGui::Spacing();
-        ImGui::Text("Университет:");
-        ImGui::Text("БГУИР");
-
-        ImGui::Spacing();
-        ImGui::Text("Факультет:");
-        ImGui::Text("ФКСиС");
-
-        ImGui::Spacing();
-        ImGui::Text("Специальность:");
-        ImGui::Text("ПИ");
-
-        ImGui::Spacing();
-        ImGui::Text("Курс:");
-        ImGui::Text("1");
+        ImGui::Text("ФИО:"); ImGui::Text("Золотенков"); ImGui::Text("Василий"); ImGui::Text("Васильевич");
+        ImGui::Spacing(); ImGui::Text("Группа:"); ImGui::Text("551002");
+        ImGui::Spacing(); ImGui::Text("Университет:"); ImGui::Text("БГУИР");
+        ImGui::Spacing(); ImGui::Text("Факультет:"); ImGui::Text("ФКСиС");
+        ImGui::Spacing(); ImGui::Text("Специальность:"); ImGui::Text("ПИ");
+        ImGui::Spacing(); ImGui::Text("Курс:"); ImGui::Text("1");
 
         ImGui::EndGroup();
         ImGui::Separator();
         ImGui::Text("Начало работы: 18.02.2026");
         ImGui::Text("Конец работы: 08.06.2026");
+        ImGui::Spacing();
+
+        if (ImGui::Button("Закрыть"))
+        {
+            g_showAboutWindow = false;
+            ImGui::CloseCurrentPopup();
+        }
+
         ImGui::EndPopup();
     }
 
@@ -290,17 +268,6 @@ void timer(int value)
 {
     glutPostRedisplay();
     glutTimerFunc(16, timer, 0);
-}
-
-fs::path GetApplicationDir()
-{
-#ifdef _WIN32
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-    return fs::path(exePath).parent_path();
-#else
-    return fs::current_path();
-#endif
 }
 
 // ---------- main ----------
@@ -334,25 +301,8 @@ int main(int argc, char** argv)
         }
     }
 
-    fs::path appDir = GetApplicationDir();
-
-    fs::path developerPath =
-        appDir.parent_path().parent_path() /
-        "Assets" /
-        "developer.png";
-
-    std::cout
-        << "Developer image path: "
-        << developerPath
-        << std::endl;
-
-    g_developerTexture =
-        LoadTexture(developerPath.string().c_str());
-
-    std::cout
-        << "Developer texture ID: "
-        << g_developerTexture
-        << std::endl;
+    g_developerTexture = LoadTexture("../../Assets/developer.png");
+    std::cout << "Developer texture ID: " << g_developerTexture << std::endl;
 
     // ImGui
     IMGUI_CHECKVERSION();
