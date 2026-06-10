@@ -29,6 +29,14 @@
 #include <commdlg.h>
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#include <direct.h>
+#endif
+
+#include <filesystem>
+namespace fs = std::filesystem;
+
 // ---------- Глобальные переменные ----------
 Pt g_head = NULL;
 Pt g_tail = NULL;
@@ -1189,10 +1197,26 @@ void timer(int value) {
 // ---------- Главная ----------
 int main(int argc, char** argv)
 {
-
 #ifdef _WIN32
-    _chdir("../../");
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+
+    fs::path exeDir = fs::path(exePath).parent_path();
+
+    std::cout << "Executable dir = "
+              << exeDir.string()
+              << std::endl;
+
+    _chdir(exeDir.string().c_str());
 #endif
+
+    fs::create_directories("Objects");
+    fs::create_directories("Scenes");
+    fs::create_directories("Screenshots");
+
+    std::cout << "Current directory = "
+              << fs::current_path().string()
+              << std::endl;
 
 #ifdef _WIN32
     char cwd[1024];
@@ -1224,7 +1248,16 @@ int main(int argc, char** argv)
     }
     else
     {
-        add_mesh_from_file("Objects/cube.obj");
+        if (fs::exists("Objects/cube.obj"))
+        {
+            add_mesh_from_file("Objects/cube.obj");
+        }
+        else
+        {
+            std::cout
+                << "Default object not found: Objects/cube.obj"
+                << std::endl;
+        }
     }
 
         init_lights((vec3){1.0f, 1.0f, 1.0f}, 0.3f, 0.7f);

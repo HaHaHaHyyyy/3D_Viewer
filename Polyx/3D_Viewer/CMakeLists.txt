@@ -38,6 +38,10 @@ set(SOURCES
 )
 
 add_executable(viewer ${SOURCES})
+target_link_options(viewer PRIVATE
+        -static-libgcc
+        -static-libstdc++
+)
 
 target_link_libraries(
         viewer
@@ -46,7 +50,6 @@ target_link_libraries(
         glu32
         winmm
         gdi32
-        stdc++      # стандартная библиотека C++
         comdlg32
 )
 

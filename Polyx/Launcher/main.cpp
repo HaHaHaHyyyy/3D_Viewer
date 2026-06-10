@@ -236,14 +236,6 @@ void display()
         ImGui::Separator();
         ImGui::Text("Начало работы: 18.02.2026");
         ImGui::Text("Конец работы: 08.06.2026");
-        ImGui::Spacing();
-
-        if (ImGui::Button("Закрыть"))
-        {
-            g_showAboutWindow = false;
-            ImGui::CloseCurrentPopup();
-        }
-
         ImGui::EndPopup();
     }
 
